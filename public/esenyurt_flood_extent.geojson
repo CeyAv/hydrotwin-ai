@@ -1,0 +1,57 @@
+{
+  "type": "FeatureCollection",
+  "name": "esenyurt_flood_risk_zones",
+  "source": "SYNTHETIC SAMPLE - not survey data. Replace with a real SAR-derived export.",
+  "crs": {
+    "type": "name",
+    "properties": {
+      "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+    }
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "zone_id": "ES-FL-01",
+        "name": "Haramidere Ana Yatak Taşkın Koridoru",
+        "severity": "EXTREME",
+        "water_depth_cm": 71,
+        "sar_confidence": 0.96
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [28.679, 41.005],
+            [28.685, 41.0035],
+            [28.6895, 41.019],
+            [28.6835, 41.0205],
+            [28.679, 41.005]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "zone_id": "ES-FL-02",
+        "name": "Esenyurt Merkez Birikinti Alanı",
+        "severity": "HIGH",
+        "water_depth_cm": 34,
+        "sar_confidence": 0.87
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [28.6905, 41.0115],
+            [28.6975, 41.0105],
+            [28.6988, 41.0155],
+            [28.6918, 41.0165],
+            [28.6905, 41.0115]
+          ]
+        ]
+      }
+    }
+  ]
+}

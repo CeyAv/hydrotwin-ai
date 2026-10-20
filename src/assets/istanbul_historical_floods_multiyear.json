@@ -1,0 +1,328 @@
+{
+  "dataset": "istanbul_historical_floods_multiyear",
+  "units": {
+    "PRECTOTCORR": "mm/day",
+    "RH2M": "%"
+  },
+  "provenance": {
+    "measured": [
+      "esenyurt_2022 — NASA POWER günlük ölçümü (28.945E / 41.015N), nasa_weather_2022.json ile birebir aynı değerler."
+    ],
+    "modelled": [
+      "composite_average, ayazaga_2026, basaksehir_2023, ayamama_2009, fatih_2019 — pik değerleri bilinen olay şiddetinden alınmış, 5 günlük faz profilleri 2022 ölçümünün faz oranları kullanılarak MODELLENMİŞTİR. Saha/istasyon ölçümü DEĞİLDİR.",
+      "Gerçek POWER export'u geldiğinde yalnızca ilgili senaryonun days dizisi değiştirilmelidir."
+    ]
+  },
+  "composite": {
+    "peak_rainfall": 92.2,
+    "peak_humidity": 83.8,
+    "derived_from": "events[] dizisindeki 6 olayın pik yağış ortalaması: (135.2+65.4+113.8+29.6+125.0+84.5)/6 = 92.25"
+  },
+  "phases": [
+    {
+      "id": "dry",
+      "label": "Kuru",
+      "short": "Kuru"
+    },
+    {
+      "id": "antecedent",
+      "label": "Öncü Doygunluk",
+      "short": "Öncü"
+    },
+    {
+      "id": "peak",
+      "label": "Pik",
+      "short": "Pik"
+    },
+    {
+      "id": "recession",
+      "label": "Çekilme",
+      "short": "Çekilme"
+    },
+    {
+      "id": "normalization",
+      "label": "Normalleşme",
+      "short": "Normal"
+    }
+  ],
+  "events": [
+    {
+      "date": "2009-09-09",
+      "name": "Ayamama / İkitelli Seli",
+      "rainfall": 135.2,
+      "impact": "Dere tabanı trafoları çöktü, 31 can kaybı."
+    },
+    {
+      "date": "2017-07-18",
+      "name": "İstanbul Süper Hücre",
+      "rainfall": 65.4,
+      "impact": "Alt geçitler ve metro girişleri su aldı, kaçak akım alarmları tetiklendi."
+    },
+    {
+      "date": "2019-08-17",
+      "name": "Fatih / Eminönü Çöküntüsü",
+      "rainfall": 113.8,
+      "impact": "Tarihi çanaklardaki trafolar devre dışı kaldı."
+    },
+    {
+      "date": "2022-07-10",
+      "name": "Esenyurt Haramidere",
+      "rainfall": 29.6,
+      "impact": "Düşük kotlu bodrum trafoları patlama ve kaçak riski üretti."
+    },
+    {
+      "date": "2023-09-05",
+      "name": "Başakşehir / Cendere Fırtınası",
+      "rainfall": 125,
+      "impact": "Sanayi aksı trafoları devre dışı kaldı."
+    },
+    {
+      "date": "2026-10-14",
+      "name": "Ayazağa Cendere Taşkını",
+      "rainfall": 84.5,
+      "impact": "Cendere vadi tabanı sanayi trafoları su altında kaldı, ring besleme devreye alındı."
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "ayazaga_2026",
+      "icon": "🌊",
+      "label": "2026 Sarıyer — Ayazağa / Cendere Vadisi",
+      "basin": "ayazaga",
+      "peak_rainfall": 84.5,
+      "measured": false,
+      "days": [
+        {
+          "phase": "dry",
+          "date": "2026-10-12",
+          "PRECTOTCORR": 0.9,
+          "RH2M": 69.4
+        },
+        {
+          "phase": "antecedent",
+          "date": "2026-10-13",
+          "PRECTOTCORR": 31.8,
+          "RH2M": 78.1
+        },
+        {
+          "phase": "peak",
+          "date": "2026-10-14",
+          "PRECTOTCORR": 84.5,
+          "RH2M": 85.3
+        },
+        {
+          "phase": "recession",
+          "date": "2026-10-15",
+          "PRECTOTCORR": 7.2,
+          "RH2M": 81
+        },
+        {
+          "phase": "normalization",
+          "date": "2026-10-16",
+          "PRECTOTCORR": 0.5,
+          "RH2M": 70.8
+        }
+      ]
+    },
+    {
+      "id": "ayamama_2009",
+      "icon": "⚡",
+      "label": "2009 Küçükçekmece — Ayamama / Basın Ekspres",
+      "basin": "ayamama",
+      "peak_rainfall": 135.2,
+      "measured": false,
+      "days": [
+        {
+          "phase": "dry",
+          "date": "2009-09-07",
+          "PRECTOTCORR": 1.2,
+          "RH2M": 70.5
+        },
+        {
+          "phase": "antecedent",
+          "date": "2009-09-08",
+          "PRECTOTCORR": 38.4,
+          "RH2M": 81.7
+        },
+        {
+          "phase": "peak",
+          "date": "2009-09-09",
+          "PRECTOTCORR": 135.2,
+          "RH2M": 89.6
+        },
+        {
+          "phase": "recession",
+          "date": "2009-09-10",
+          "PRECTOTCORR": 12.6,
+          "RH2M": 84.2
+        },
+        {
+          "phase": "normalization",
+          "date": "2009-09-11",
+          "PRECTOTCORR": 0.8,
+          "RH2M": 73.1
+        }
+      ]
+    },
+    {
+      "id": "basaksehir_2023",
+      "icon": "🚨",
+      "label": "2023 Başakşehir — İkitelli OSB / MASKO",
+      "basin": "basaksehir",
+      "peak_rainfall": 125,
+      "measured": false,
+      "days": [
+        {
+          "phase": "dry",
+          "date": "2023-09-03",
+          "PRECTOTCORR": 0.4,
+          "RH2M": 68.2
+        },
+        {
+          "phase": "antecedent",
+          "date": "2023-09-04",
+          "PRECTOTCORR": 46.2,
+          "RH2M": 80.4
+        },
+        {
+          "phase": "peak",
+          "date": "2023-09-05",
+          "PRECTOTCORR": 125,
+          "RH2M": 88.1
+        },
+        {
+          "phase": "recession",
+          "date": "2023-09-06",
+          "PRECTOTCORR": 9.4,
+          "RH2M": 82.6
+        },
+        {
+          "phase": "normalization",
+          "date": "2023-09-07",
+          "PRECTOTCORR": 0.2,
+          "RH2M": 71.3
+        }
+      ]
+    },
+    {
+      "id": "esenyurt_2022",
+      "icon": "⚠️",
+      "label": "2022 Esenyurt — Haramidere Kronik Çanak",
+      "basin": "esenyurt",
+      "peak_rainfall": 29.6,
+      "measured": true,
+      "days": [
+        {
+          "phase": "dry",
+          "date": "2022-07-08",
+          "PRECTOTCORR": 0.16,
+          "RH2M": 73.94
+        },
+        {
+          "phase": "antecedent",
+          "date": "2022-07-09",
+          "PRECTOTCORR": 14.86,
+          "RH2M": 75.86
+        },
+        {
+          "phase": "peak",
+          "date": "2022-07-10",
+          "PRECTOTCORR": 29.59,
+          "RH2M": 78.59
+        },
+        {
+          "phase": "recession",
+          "date": "2022-07-11",
+          "PRECTOTCORR": 1.56,
+          "RH2M": 68.02
+        },
+        {
+          "phase": "normalization",
+          "date": "2022-07-12",
+          "PRECTOTCORR": 0.01,
+          "RH2M": 66.46
+        }
+      ]
+    },
+    {
+      "id": "fatih_2019",
+      "icon": "🏛️",
+      "label": "2019 Fatih — Tarihi Yarımada / Vatan Caddesi",
+      "basin": "fatih",
+      "peak_rainfall": 113.8,
+      "measured": false,
+      "days": [
+        {
+          "phase": "dry",
+          "date": "2019-08-15",
+          "PRECTOTCORR": 0.6,
+          "RH2M": 67.8
+        },
+        {
+          "phase": "antecedent",
+          "date": "2019-08-16",
+          "PRECTOTCORR": 41.5,
+          "RH2M": 79.8
+        },
+        {
+          "phase": "peak",
+          "date": "2019-08-17",
+          "PRECTOTCORR": 113.8,
+          "RH2M": 87.4
+        },
+        {
+          "phase": "recession",
+          "date": "2019-08-18",
+          "PRECTOTCORR": 8.9,
+          "RH2M": 81.9
+        },
+        {
+          "phase": "normalization",
+          "date": "2019-08-19",
+          "PRECTOTCORR": 0.3,
+          "RH2M": 70.1
+        }
+      ]
+    },
+    {
+      "id": "composite_average",
+      "icon": "📊",
+      "label": "17 Yıllık Kompozit İstanbul Modeli (2009-2026)",
+      "basin": null,
+      "peak_rainfall": 92.2,
+      "measured": false,
+      "days": [
+        {
+          "phase": "dry",
+          "date": "T-2",
+          "PRECTOTCORR": 0.8,
+          "RH2M": 71
+        },
+        {
+          "phase": "antecedent",
+          "date": "T-1",
+          "PRECTOTCORR": 34.6,
+          "RH2M": 79.5
+        },
+        {
+          "phase": "peak",
+          "date": "T0",
+          "PRECTOTCORR": 92.2,
+          "RH2M": 83.8
+        },
+        {
+          "phase": "recession",
+          "date": "T+1",
+          "PRECTOTCORR": 7.6,
+          "RH2M": 80.2
+        },
+        {
+          "phase": "normalization",
+          "date": "T+2",
+          "PRECTOTCORR": 0.4,
+          "RH2M": 72.4
+        }
+      ]
+    }
+  ]
+}
