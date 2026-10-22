@@ -10,13 +10,24 @@ import {
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import floodArchive from "./assets/istanbul_historical_floods_multiyear.json";
+import LiveWeatherAlert from "./LiveWeatherAlert";
+import ResilienceAnalysisPanel from "./components/ResilienceAnalysisPanel";
+import CopilotPanel from "./components/CopilotPanel";
+import ScadaSimulationPanel from "./components/ScadaSimulationPanel";
+import WeatherDonutPanel from "./components/WeatherDonutPanel";
+import { Zap, ShieldCheck, AlertTriangle } from "lucide-react";
 
 // --- Çok yıllı tarihsel taşkın arşivi ---
 // Tek bir 2022 senaryosu yerine, her biri 5 hidrolojik faz taşıyan senaryolar.
 const SCENARIOS = floodArchive.scenarios;
 const PHASES = floodArchive.phases;
-const COMPOSITE = floodArchive.composite;
 const DEFAULT_SCENARIO_ID = "composite_average";
+const FLOOD_SCENARIO_BY_BASIN = {
+  ayazaga: "ayazaga_2026",
+  ayamama: "ayamama_2009",
+  esenyurt: "esenyurt_2022",
+  fatih: "fatih_2019",
+};
 
 const PHASE_LABEL = Object.fromEntries(PHASES.map((p) => [p.id, p.label]));
 const PHASE_SHORT = Object.fromEntries(PHASES.map((p) => [p.id, p.short]));
@@ -105,7 +116,6 @@ function calculateRisk(tr, mmPerDay, phase) {
 
 // SCADA izolasyonu sonrası enerjisiz trafo rengi ve yedek hat rengi.
 const ISOLATED_COLOR = "#64748b";
-const BACKUP_FEED_COLOR = "#eab308";
 
 /** Kritik trafolar daha büyük, daha kalın çerçeveli ve nabız atar. */
 function markerStyle(risk, isolated) {
@@ -142,6 +152,43 @@ function markerStyle(risk, isolated) {
  * Esenyurt gibi tüm trafoları çanakta kalan havzalarda böyle bir trafo yoktur;
  * o durumda yüksek kotlu güvenli toplanma alanı dayanak olarak kullanılır.
  */
+function floodPolygonPathOptions(waterLevelCm) {
+  if (waterLevelCm >= 90) {
+    return {
+      color: "#1e3a8a",
+      fillColor: "#1e3a8a",
+      fillOpacity: 0.75,
+      weight: 2,
+      dashArray: "4",
+    };
+  }
+  if (waterLevelCm >= 50) {
+    return {
+      color: "#0284c7",
+      fillColor: "#0284c7",
+      fillOpacity: 0.45,
+      weight: 2,
+      dashArray: "4",
+    };
+  }
+  if (waterLevelCm >= 10) {
+    return {
+      color: "#38bdf8",
+      fillColor: "#38bdf8",
+      fillOpacity: 0.15,
+      weight: 2,
+      dashArray: "4",
+    };
+  }
+  return {
+    color: "#0284c7",
+    fillColor: "#0284c7",
+    fillOpacity: 0.45,
+    weight: 2,
+    dashArray: "4",
+  };
+}
+
 function backupFeedSource(basin, rainfallMm, phase) {
   const safeHighGround = basin.transformers
     .filter((tr) => calculateRisk(tr, rainfallMm, phase).level === "SAFE")
@@ -238,7 +285,7 @@ function MapController({ center, zoom }) {
 }
 
 // Havza ve Altyapı Veritabanı
-const BASINS = {
+const BASIN_DATA = {
   ayazaga: {
     name: "Sarıyer (Ayazağa - Cendere Vadisi)",
     criticalLoadNote:
@@ -499,6 +546,36 @@ const BASINS = {
   },
 };
 
+const BASIN_BEDAS_NAMES = {
+  ayazaga: "Ayazağa",
+  ayamama: "Ayamama",
+  esenyurt: "Haramidere",
+  fatih: "Aksaray",
+  basaksehir: "İkitelli",
+};
+
+const BASINS = Object.fromEntries(
+  Object.entries(BASIN_DATA).map(([basinKey, basin]) => {
+    const bedasName = BASIN_BEDAS_NAMES[basinKey];
+    return [
+      basinKey,
+      {
+        ...basin,
+        afadZone: "AFAD 1. Derece Taşkın Riski Alanı (Kot < 15m)",
+        criticalPumps: "Metro Tünel Drenaj Pompaları & Alt Geçit Motorları",
+        transformers: basin.transformers.map((transformer) => ({
+          ...transformer,
+          bedasCode: `${transformer.id} / ${bedasName} TM`,
+          riskCostUsd: 1200000,
+          epdkDailyPenalty: "850.000 TL / gün",
+          recommendation:
+            "+2.2m Çelik Kaide Yükseltme & SF6 GIS Su Geçirmez Şalt Dönüşümü",
+        })),
+      },
+    ];
+  })
+);
+
 /**
  * Kompozit model tek bir havzaya bakmaz: harita İstanbul geneline çekilir ve
  * beş havzanın çanakları aynı anda gösterilir.
@@ -596,12 +673,6 @@ const COMPOSITE_METRICS = {
 
 /**
  * Soruyu anahtar kelime eşleştirmesine hazırlar.
- *
- * Önce Türkçe yerelde küçültülür (tr-TR: "I" → "ı", "İ" → "i"), ardından
- * ASCII'ye katlanır. İkinci adım şart: tr-TR tek başına "RISK" kelimesini
- * "rısk" yapar ve 'risk' anahtarını kaçırır — büyük harfle yazılan her
- * yabancı kökenli sözcükte aynı sorun oluşur. Katlama sonrası her iki yazım
- * da aynı forma iner ("TAŞKIN" ve "taskin" → "taskin").
  */
 const normalizeQuery = (text) =>
   text
@@ -612,10 +683,6 @@ const normalizeQuery = (text) =>
 
 /**
  * Mühendislik bilgi havuzu — tamamı istemci tarafında, dış servis yok.
- *
- * Sıra bilinçli olarak SPESİFİKTEN GENELE dizilmiştir: "Ayamama'da risk
- * nedir?" sorusu hem havza hem genel-risk anahtarlarını taşır; genel bloklar
- * önce denense havza analizlerine hiç ulaşılamazdı.
  */
 const KNOWLEDGE_BASE = [
   {
@@ -656,7 +723,6 @@ const KNOWLEDGE_BASE = [
   },
   {
     id: "risk",
-    // \bsel\b sınırı şart: sınırsız arama "selam", "sele" gibi sözcükleri yakalar.
     test: /risk|gelecek|nerede|nereler|nerelerde|taskin|\bsel\b|bolge|kusak/,
     reply: `17 yıllık İstanbul afet hafızası (2009-2026) ve topografik DEM çanak analizi uyarınca:
 📍 Yüksek Riskli Kuşak: Avrupa Yakası'nın rakımı 15 m altındaki alüvyon vadi tabanları (Ayamama, Haramidere, Cendere, İkitelli ve Aksaray).
@@ -673,24 +739,173 @@ const KNOWLEDGE_BASE = [
   },
 ];
 
-const ANSWER_FALLBACK = `HydroTwin 17 Yıllık Model Verisi: Avrupa Yakası vadi çanaklarındaki ${TOTAL_CRITICAL_UNITS} kritik ünite proaktif izolasyon ve yük aktarımı protokolüyle güvenceye alınmıştır. Belirli bir havza (Ayamama, Haramidere, Cendere), altyapı yatırımları (GIS, platform yükseltme) veya kriz lojistiği hakkında detay sorabilirsiniz.`;
+const ANSWER_FALLBACK = `SurgeTwin 17 Yıllık Model Verisi: Avrupa Yakası vadi çanaklarındaki ${TOTAL_CRITICAL_UNITS} kritik ünite proaktif izolasyon ve yük aktarımı protokolüyle güvenceye alınmıştır. Belirli bir havza (Ayamama, Haramidere, Cendere), altyapı yatırımları (GIS, platform yükseltme) veya kriz lojistiği hakkında detay sorabilirsiniz.`;
 
-/** Yerel karar motoru — dış servis, anahtar veya ağ çağrısı yoktur. */
-function getBotResponse(question) {
+/** Yerel karar motoru — Afet simülasyonu durumunda dinamik ve anlık yanıt üretir. */
+function getBotResponse(question, context = {}) {
+  const {
+    currentBasin,
+    waterLevelCm,
+    isolationActive,
+    weatherFloodActive,
+    protectedAssetUsd,
+    rainfallMm,
+    backupTransformer,
+  } = context;
+
   const q = normalizeQuery(question);
+
+  // 1. What-If Kriz Simülasyon Motoru (Örn: 135 mm, 115 mm, 125 mm veya özel değer)
+  const whatIfMatch = q.match(/(\d{2,3})\s*mm/) || q.match(/what[- ]?if|ya olursa|simulasyon|rekor/);
+  if (whatIfMatch) {
+    const rawVal = q.match(/(\d{2,3})\s*mm/);
+    const amount = rawVal ? parseInt(rawVal[1], 10) : 135;
+    const basinName = currentBasin?.name ?? "Cendere Vadisi";
+    const perm = currentBasin?.id === "esenyurt" ? 92 : currentBasin?.id === "ayamama" ? 88 : 85;
+    const timeToFloor = Math.max(8, Math.round(28 - (amount - 25) * 0.16));
+    const timeToBreach = timeToFloor + 6;
+    const waterHeight = Math.min(140, Math.round(amount * 0.95));
+    const lowestTr = [...(currentBasin?.transformers || [])].sort((a, b) => a.elevation - b.elevation)[0] || { name: "Vadi Tabanı Trafosu", elevation: 8 };
+    const penaltyTL = new Intl.NumberFormat("tr-TR").format(Math.round(amount * 38000));
+    const passengers = new Intl.NumberFormat("tr-TR").format(Math.round(amount * 400));
+    const safeZone = currentBasin?.safeZone?.name ?? "İTÜ Maslak Sırtı";
+    const safeElev = currentBasin?.safeZone?.elevation ?? 72;
+
+    return `🔮 WHAT-IF SİMÜLASYONU: ${amount} mm/gün Pik Taşkın Senaryosu
+📍 Hedef Havza: ${basinName} (Zemin Geçirimsizliği: %${perm})
+
+⏱️ 1. Dinamik Kriz Kronolojisi:
+• T+0 dk: Şiddetli pik fırtına başlangıcı; %${perm} geçirimsiz beton yüzey akışını vadiye hücum ettirir.
+• T+${timeToFloor} dk: Vadi tabanında su hızla birikir, seviye ${waterHeight} cm pik kret kotuna ulaşır.
+• T+${timeToBreach} dk: ${lowestTr.name} (${lowestTr.elevation} m) 50 cm kaide kotu aşılır. Reaktif beklenirse 34.5 kV hücrede su altı arkı ve infilak gerçekleşir.
+• T+${timeToBreach + 7} dk: Cer kesintisi nedeniyle tünel drenaj pompaları durur, metro alt geçit ve peronlarını su basar.
+
+💰 2. Reaktif Beklemenin Mali & İnsani Bilançosu:
+• Ekipman İnfilak Hasarı: ~$${((protectedAssetUsd || 2_400_000) / 1_000_000).toFixed(1)}M (Trafo yenileme/tedarik süresi: 4-6 hafta)
+• EPDK Kesinti Tazminatı: ~₺${penaltyTL} TL (Plansız geniş alan kesintisi)
+• Etkilenen Kamu Ulaşımı: ~${passengers} metro yolcusunun tahliye riski
+
+⚡ 3. SurgeTwin Proaktif Mühendislik Kararı:
+• T+${Math.max(3, timeToFloor - 5)} dk: Su seviyesi henüz 15 cm iken vadi köşkleri SCADA ile uzaktan izole edilir.
+• Ring Manevrası: Metro drenaj hatları ${safeZone} (${safeElev} m) güvenli sırt merkezine aktarılır.
+• Sonuç: Sıfır ark patlaması, sıfır metro felci, 24 saatte hızlı meger testiyle yeniden devreye alma!`;
+  }
+
+  // 2. Jüri & Karar Verici: Neden Eski Yöntemler Geçersiz?
+  if (/eski|gecersiz|neden eski|reaktif|klasik|geleneksel|neden degisti|farki ne|juri/.test(q)) {
+    return `⚖️ Neden Eski / Klasik Yöntemler Geçersizdir? (Jüri & Karar Verici Analizi):
+
+1. 💥 Reaktif Çöküş İlkesi:
+Klasik dağıtım şebekesinde trafo suyun içine gömülüp patlayana kadar enerji kesilmez. Su 50 cm kaide kotunu aştığında su altı arkı patlar; SF6 gazı atmosfere, yüzlerce litre trafo izolasyon yağı dere yatağına saçılır.
+
+2. ⏳ 6 Haftalık Tedarik Felci:
+İnfilak eden bir vadi trafo merkezinin sipariş, imalat ve montaj süresi en az 3 ila 6 hafta sürer. Bu sürede metro ve sanayi hatları elektriksiz kalır.
+
+3. 🚛 Lojistik İmkânsızlığı:
+17 yıllık afet frekansı (2009-2026), vadi tabanı arterlerinin (E-5 ve Basın Ekspres) ilk 40 dakikada kilitlendiğini doğrulamaktadır. İtfaiye, tahliye pompası veya mobil jeneratörler vadiye FİZİKEN ULAŞAMAZ.
+
+4. 💸 EPDK Tazminat Cezaları:
+Mevzuat uyarınca plansız uzun süreli kesintilerde dağıtım şirketine günlük 850.000 TL'yi aşan ağır regülasyon cezaları kesilir.
+
+✅ SurgeTwin Farkı: Su henüz 15 cm iken uzaktan kontrollü izole eder; trafo ıslansa dahi patlamaz, su çekilince meger yalıtım testiyle 24 saatte güvenle devreye alınır!`;
+  }
+
+  // 3. Jüri & Karar Verici: Bu Aktarımın / Ring Beslemenin Faydası Ne?
+  if (/aktarim|fayda|ne ise yarar|yarari ne|neden ring|ring fayda|neden onemli/.test(q)) {
+    return `💡 Proaktif Ring Beslemesinin ve Yük Aktarımının Temel Faydaları:
+
+1. 🚇 Sıfır Metro Felci & Can Güvenliği:
+Vadi tabanı trafosu izole edilse dahi M1, M9 ve kritik drenaj pompaları yeşil sırtlardaki (${backupTransformer?.name ?? "İTÜ Maslak 72m / Kuyumcukent 64m"}) merkezlerden çift yönlü ring ile kesintisiz beslenir. Metro tünelleri su altında kalmaz.
+
+2. 🛡️ 8.2 Milyon Dolar Kümülatif Tasarruf:
+İstanbul geneli 12 vadi tabanı kritik ünitesinde kümülatif ~8.2M $ ekipman yenileme ve plansız sanayi kesinti hasarı önlenir.
+
+3. 📈 4.5x Yatırım Geri Dönüşü (ROI):
+1.8M $ modernizasyon ve SCADA otomasyon bütçesi, ilk büyük pik afet fırtınasında kendini 4.5 kat amorti eder.
+
+4. ⚡ Kontrollü Yük Önceliklendirmesi (Load Shedding):
+Ağır sanayi yükü kontrollü bekletilirken; hastaneler, tahliye pompaları ve afet lojistiği kesintisiz enerjili tutulur.`;
+  }
+
+  // 4. Sel İçin Proaktif Reçete Nedir?
+  if (/proaktif|recete|cozum|oneri|nasil koruruz|gelecek sel|yapilandir/.test(q)) {
+    return `🏗️ Gelecek Seller İçin 4 Boyutlu Proaktif Dayanıklılık Reçetesi:
+
+1. 📐 Fiziksel Kot Yükseltmesi (+2.0 m):
+12 vadi tabanı trafo köşkü, taşkın kret seviyesinin en az +2.0 metre üzerine, çelik podyumlar üzerine taşınmalıdır.
+
+2. 🛡️ IP68 Gaz İzoleli Şalt (GIS) Dönüşümü:
+Açık tip hava izoleli hücreler, su altında dahi çalışabilen SF6 Gaz İzoleli Şalt kabinlerine dönüştürülerek patlama riski sıfırlanmalıdır.
+
+3. 🔄 Yüksek Kot FLISR Ring Omurgası:
+Vadi tabanında tek yönlü radyal besleme yerine, güvenli sırt kotlarından (İTÜ 72m, Kuyumcukent 64m, Başakşehir 122m) çift yönlü ring hatları kurulmalıdır.
+
+4. 🌲 Doğa Temelli Çözümler (NBS):
+Vadi yamaçlarında yağmur hendekleri, sızıntı havzaları ve %30 geçirimli zemin kaplamaları uygulanarak yüzey akış katsayısı kırılmalıdır.`;
+  }
+
+  // 5. Anlık Afet & Kriz Durumu
+  if (/afet|kriz|durum|anlik|su seviye|alar[m|i]|simule/.test(q)) {
+    if (weatherFloodActive) {
+      return `🚨 AKTİF AFET ALARMI (${rainfallMm || 85} mm/gün):
+• Havza: ${currentBasin?.name ?? "Cendere Vadisi"}
+• Vadi Tabanı Su Seviyesi: ${waterLevelCm} cm (${waterLevelCm >= 90 ? "Pik Taşkın Kret Kotu" : waterLevelCm >= 50 ? "Kaide Eşiği" : "Taban Akışı"})
+• SCADA Durumu: ${
+        isolationActive
+          ? `✅ Proaktif izolasyon uygulandı. ~$${((protectedAssetUsd || 2_400_000) / 1_000_000).toFixed(1)}M varlık korundu.`
+          : "⚠️ İZOLASYON BEKLEMEDE! Vadi tabanı trafolarının su kret seviyesine ulaşmadan enerjisiz bırakılması önerilir."
+      }
+• Ring Besleme: Kritik metro ve tahliye pompaları ${backupTransformer?.name ?? "yüksek kot indirici merkezine"} aktarılmalıdır.`;
+    }
+    return `🌤️ Normal İşletme Durumu:
+• Havza: ${currentBasin?.name ?? "İstanbul Geneli"}
+• Şebeke Durumu: Güvenli, aktif taşkın riski bulunmuyor.
+• Canlı Yağış: 0.0 mm/h.
+• Pik afeti simüle etmek için üst bardaki '⚡ Afet Simülasyonunu Tetikle' butonunu kullanabilirsiniz.`;
+  }
+
+  // 2. Metro Pompaları & Kritik Yükler (Load Shedding)
+  if (/pompa|metro|drenaj|tahliye|cer|load shedding|yuk/.test(q)) {
+    return `🚇 Kritik Yük & Metro Drenaj Pompaları Protokolü:
+• ${currentBasin?.name ?? "Vadi"} çanağındaki metro tünel drenaj pompaları (${currentBasin?.criticalPumps ?? "M1/M9 drenaj hatları"}) asla enerjisiz bırakılamaz.
+• Vadi tabanı trafosu izole edildiğinde, çift yönlü ring ile ${backupTransformer?.name ?? "İTÜ Maslak Sırtı (72 m)"} merkezinden beslenir.
+• Yük önceliği sırasıyla: 1. Metro drenaj pompaları, 2. Hastane hatları, 3. Saha aydınlatmasıdır. Ağır sanayi yükü kontrollü kesilir.`;
+  }
+
+  // 3. İzolasyon & Yeniden Enerji Verme (Re-energization)
+  if (/izolasyon|kesici|scada|yeniden enerji|re-?energiz|enerji ver|meger/.test(q)) {
+    return `⚡ SCADA Proaktif İzolasyon & Yeniden Enerji Protokolü:
+• Taşkın anında su seviyesi 50 cm kaide kotuna ulaştığında vadi köşkleri uzaktan izole edilir (su altı ark ve patlama önlenir).
+• Yeniden enerji verme: Yağış dursa dahi su tamamen çekilmeden ve meger yalıtım testleri (%84+ zemin nemi uyarınca) tamamlanmadan ana kesiciler kapatılmamalıdır.`;
+  }
+
+  // 4. Saha & Güvenli Toplanma Noktası
+  if (/toplanma|tahliye|kacis|nerede|nereye|guvenli bolge|sigin/.test(q)) {
+    return `📍 Güvenli Toplanma & Lojistik Rotası:
+• Seçili Havza: ${currentBasin?.name ?? "Ayazağa Cendere"}
+• Güvenli Toplanma Noktası: ${currentBasin?.safeZone?.name ?? "İTÜ Maslak Sırtı"} (Rakım: ${currentBasin?.safeZone?.elevation ?? 85} m)
+• Lojistik Aksı: E-5 ve Basın Ekspres su altında kaldığında acil sahra ekipleri yüksek kotlu Kuzey Çevre Yolu (TEM / E-80) sırtından sevk edilir.`;
+  }
+
+  // 5. Bilgi tabanı eşleşmesi
   const match = KNOWLEDGE_BASE.find((entry) => entry.test.test(q));
-  return match ? match.reply : ANSWER_FALLBACK;
+  if (match) return match.reply;
+
+  return ANSWER_FALLBACK;
 }
 
 /** Yapay zekâ düşünme simülasyonu süresi. */
-const BOT_THINKING_MS = 400;
+const BOT_THINKING_MS = 350;
 
-const CHAT_WELCOME = `🤖 HydroTwin İklim Danışmanı: 17 yıllık İstanbul afet hafızası (2009-2026) ve Avrupa Yakası topografik DEM risk modeli devrede. Vadi tabanlarındaki ${TOTAL_CRITICAL_UNITS} kritik trafo, geleceğe dönük GIS yatırımları veya bölgesel taşkın riskleri hakkında dilediğinizi sorabilirsiniz.`;
+const CHAT_WELCOME = `🤖 SurgeTwin AI İklim & SCADA Danışmanı devrede. Şebeke direnci, What-If senaryoları veya operasyonel kararlar hakkında soru sorabilirsiniz.`;
 
 const CHAT_HINTS = [
-  "Basın Ekspres Koridoru",
-  "GIS Trafo Yatırımı",
-  "Avrupa Yakası E-80 Lojistik Ringi",
+  "🔮 135 mm Rekor Yağarsa?",
+  "⚖️ Neden Eski Yöntemler Geçersiz?",
+  "💡 Bu Aktarımın Faydası Ne?",
+  "🏗️ Gelecek Şebeke Reçetesi",
+  "🚇 Metro Pompaları Protokolü",
+  "💰 Finansal Bilanço & ROI",
 ];
 
 const COMPOSITE_ANSWERS = {
@@ -704,10 +919,24 @@ const COMPOSITE_ANSWERS = {
 
 export default function App() {
   const [selectedBasinKey, setSelectedBasinKey] = useState("ayazaga");
+  const [focusedBasinKey, setFocusedBasinKey] = useState(null);
   const [selectedScenarioId, setSelectedScenarioId] = useState(DEFAULT_SCENARIO_ID);
   const [selectedPhase, setSelectedPhase] = useState("peak");
   // null ise yağış NASA ölçümünden gelir; sayı ise kullanıcı kaydırıcıyla ezmiştir.
   const [manualRainfall, setManualRainfall] = useState(null);
+  const [weatherFloodActive, setWeatherFloodActive] = useState(false);
+  const [liveWeatherData, setLiveWeatherData] = useState({
+    precipitation: 0,
+    temperature: 19,
+    refreshing: false,
+    error: "",
+  });
+  const [waterLevelCm, setWaterLevelCm] = useState(0);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportGeneratedAt, setReportGeneratedAt] = useState(null);
+  const [showMethodology, setShowMethodology] = useState(false);
+  const [showOpsLog, setShowOpsLog] = useState(false);
+  const [crisisEventLog, setCrisisEventLog] = useState([]);
   // İzolasyon tetiklendiği havzaya bağlıdır; senaryo auto-sync ile havza
   // değişince manevra o havzada kalır, yeni havzaya taşınmaz.
   const [isolation, setIsolation] = useState({ active: false, basinKey: null });
@@ -721,15 +950,25 @@ export default function App() {
   ]);
   const chatScrollRef = useRef(null);
 
-  // Yeni mesaj geldiğinde pencereyi en alta kaydır.
+  // Yeni mesaj geldiğinde cevabın ve sorunun en üstüne (başlığına) odaklan
   useEffect(() => {
     const el = chatScrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+
+    const items = el.querySelectorAll(".chat-message-item");
+    if (items.length > 0) {
+      const targetItem = items.length >= 2 ? items[items.length - 2] : items[items.length - 1];
+      const offsetTop = targetItem.offsetTop - el.offsetTop;
+      el.scrollTo({
+        top: Math.max(0, offsetTop - 6),
+        behavior: "smooth",
+      });
+    }
   }, [chatMessages, isBotTyping]);
 
-  const sendChatMessage = (event) => {
-    event.preventDefault();
-    const question = chatInput.trim();
+  const sendChatMessage = (event, customQuestion) => {
+    if (event?.preventDefault) event.preventDefault();
+    const question = (customQuestion || chatInput).trim();
     if (!question || isBotTyping) return;
 
     setChatInput("");
@@ -738,58 +977,130 @@ export default function App() {
     window.setTimeout(() => {
       setChatMessages((previous) => [
         ...previous,
-        { role: "bot", text: getBotResponse(question) },
+        {
+          role: "bot",
+          text: getBotResponse(question, {
+            currentBasin,
+            waterLevelCm,
+            isolationActive,
+            weatherFloodActive,
+            protectedAssetUsd,
+            rainfallMm,
+            backupTransformer,
+          }),
+        },
       ]);
       setIsBotTyping(false);
     }, BOT_THINKING_MS);
+  };
+
+  const handleLiveFloodTrigger = (isCritical, _rainAmount) => {
+    if (!isCritical) {
+      if (weatherFloodActive) {
+        setWeatherFloodActive(false);
+        setSelectedScenarioId(DEFAULT_SCENARIO_ID);
+        setSelectedPhase("peak");
+        setManualRainfall(null);
+        setIsolation({ active: false, basinKey: null });
+        setFocusedBasinKey(null);
+        setRouteState(IDLE_ROUTE);
+        setCrisisEventLog([]);
+        setWaterLevelCm(0);
+      }
+      return;
+    }
+
+    const floodScenarioId = FLOOD_SCENARIO_BY_BASIN[selectedBasinKey];
+    setWeatherFloodActive(true);
+    setWaterLevelCm(90);
+    setManualRainfall(85);
+    setSelectedScenarioId(floodScenarioId ?? "ayazaga_2026");
+    setSelectedPhase("peak");
+    setFocusedBasinKey(selectedBasinKey);
+    setIsolation({ active: false, basinKey: null });
+    setRouteState(IDLE_ROUTE);
+    const startedAt = Date.now();
+    setCrisisEventLog([
+      { minute: 0, at: startedAt, text: "Canlı yağış / pik afet eşiği (85 mm) algılandı; havza alarmı üretildi." },
+      { minute: 2, at: startedAt + 2 * 60_000, text: "Vadi tabanındaki kritik trafo ve metro drenaj yükleri risk listesine alındı." },
+      { minute: 4, at: startedAt + 4 * 60_000, text: `Model yedek kaynak önerisi: ${BASINS[selectedBasinKey].transformers.find((transformer) => !transformer.isCritical)?.name ?? BASINS[selectedBasinKey].safeZone.name}.` },
+      { minute: 6, at: startedAt + 6 * 60_000, text: "SCADA operatör onayı bekleniyor; proaktif izolasyon manevrası hazır." },
+    ]);
+  };
+
+  const handleSelectWeatherBasin = (basinKey) => {
+    if (!BASINS[basinKey]) return;
+    if (basinKey !== selectedBasinKey) {
+      setWeatherFloodActive(false);
+      setSelectedScenarioId(DEFAULT_SCENARIO_ID);
+      setSelectedPhase("peak");
+      setManualRainfall(null);
+      setIsolation({ active: false, basinKey: null });
+      setWaterLevelCm(0);
+      setCrisisEventLog([]);
+    }
+    setSelectedBasinKey(basinKey);
+    setFocusedBasinKey(basinKey);
+    setRouteState(IDLE_ROUTE);
   };
 
   const currentBasin = BASINS[selectedBasinKey];
 
   const scenario =
     SCENARIOS.find((s) => s.id === selectedScenarioId) ?? SCENARIOS[0];
+  const isComposite = scenario.id === "composite_average";
   const currentDay =
     scenario.days.find((d) => d.phase === selectedPhase) ?? scenario.days[0];
 
   const archiveRainfall = currentDay.PRECTOTCORR;
   const humidity = currentDay.RH2M;
   const isManual = manualRainfall !== null;
-  const rainfallMm = isManual ? manualRainfall : archiveRainfall;
+  const rainfallMm =
+    waterLevelCm === 10
+      ? 10
+      : waterLevelCm === 50
+        ? 50
+        : waterLevelCm >= 90 || weatherFloodActive
+          ? (manualRainfall ?? 85)
+          : isManual
+            ? manualRainfall
+            : isComposite
+              ? 0.0
+              : archiveRainfall;
 
   const band = rainBand(rainfallMm);
   const isFloodEvent = band.key === "EXTREME";
-  const isPeakActive = selectedPhase === "peak" && !isManual;
-  const isComposite = scenario.id === "composite_average";
-
-  // Seçili senaryonun pik gününe atlar / kuru güne döner.
-  const triggerStormForecast = () => {
-    setSelectedPhase(isPeakActive ? "dry" : "peak");
-    setManualRainfall(null);
+  const riskForTransformer = (transformer) => {
+    if (transformer.isCritical) {
+      if (waterLevelCm === 10) return RISK.SAFE;
+      if (waterLevelCm >= 50 && waterLevelCm < 90) return RISK.WARNING;
+      if (waterLevelCm >= 90) return RISK.CRITICAL;
+    }
+    if (
+      transformer.isCritical &&
+      (waterLevelCm >= 50 || rainfallMm > 30)
+    ) {
+      return RISK.CRITICAL;
+    }
+    return calculateRisk(transformer, rainfallMm, selectedPhase);
   };
 
   const selectPhase = (phaseId) => {
+    if (weatherFloodActive) return;
     setSelectedPhase(phaseId);
     setManualRainfall(null); // faz seçimi manuel ezmeyi iptal eder
   };
 
-  const selectScenario = (scenarioId) => {
-    const next = SCENARIOS.find((s) => s.id === scenarioId);
-    setSelectedScenarioId(scenarioId);
-    setSelectedPhase("peak");
-    setManualRainfall(null);
-    setIsolation(
-      scenarioId === "ayazaga_2026"
-        ? { active: true, basinKey: "ayazaga" }
-        : { active: false, basinKey: null }
-    );
-    // Senaryonun bağlı olduğu havzaya otomatik geçilir; harita MapController
-    // üzerinden oraya uçar. Kompozitin bağlı havzası yoktur (basin: null),
-    // o durumda kullanıcının seçtiği havza korunur.
-    if (next?.basin) setSelectedBasinKey(next.basin);
-  };
-
   const criticalTransformers = currentBasin.transformers.filter(
-    (tr) => calculateRisk(tr, rainfallMm, selectedPhase).level === "CRITICAL"
+    (tr) => riskForTransformer(tr).level === "CRITICAL"
+  );
+  const isolationTargets =
+    waterLevelCm >= 50
+      ? currentBasin.transformers.filter((tr) => tr.isCritical)
+      : criticalTransformers;
+  const protectedAssetUsd = isolationTargets.reduce(
+    (sum, transformer) => sum + (transformer.riskCostUsd || 1_200_000),
+    0
   );
 
   // İzolasyon yalnızca kesilecek kritik ünite varken ve tetiklendiği havzada
@@ -799,22 +1110,72 @@ export default function App() {
     !isComposite &&
     isolation.active &&
     isolation.basinKey === selectedBasinKey &&
-    criticalTransformers.length > 0;
+    isolationTargets.length > 0;
 
-  const toggleIsolation = () =>
-    setIsolation((previous) =>
-      previous.active && previous.basinKey === selectedBasinKey
-        ? { active: false, basinKey: null }
-        : { active: true, basinKey: selectedBasinKey }
+  const toggleIsolation = () => {
+    const shouldIsolate = !(isolation.active && isolation.basinKey === selectedBasinKey);
+    setIsolation(
+      shouldIsolate
+        ? { active: true, basinKey: selectedBasinKey }
+        : { active: false, basinKey: null }
     );
+    if (shouldIsolate) {
+      const source = backupFeedSource(currentBasin, rainfallMm, selectedPhase);
+      setCrisisEventLog((previous) => [
+        ...previous,
+        {
+          minute: previous.length ? Math.max(...previous.map((entry) => entry.minute)) + 2 : 0,
+          at: Date.now(),
+          text: `${isolationTargets.length} kritik trafo izole edildi; metro/tahliye yükleri ${source.name} (${source.elevation} m) yedeğine aktarıldı.`,
+        },
+      ].slice(-5));
+    } else {
+      setCrisisEventLog((previous) => [
+        ...previous,
+        {
+          minute: previous.length ? Math.max(...previous.map((entry) => entry.minute)) + 1 : 0,
+          at: Date.now(),
+          text: "Operatör izolasyonu geri aldı; simülasyon yükleri normal işletime döndürüldü.",
+        },
+      ].slice(-5));
+    }
+  };
+
+  const handleWaterLevelChange = (nextLevelCm) => {
+    const previousLevelCm = waterLevelCm;
+    setWaterLevelCm(nextLevelCm);
+    if (nextLevelCm <= 10) {
+      setWeatherFloodActive(false);
+      setManualRainfall(5);
+    } else if (nextLevelCm < 90) {
+      setWeatherFloodActive(false);
+      setManualRainfall(35);
+    } else {
+      setWeatherFloodActive(true);
+      setManualRainfall(85);
+      setSelectedPhase("peak");
+    }
+    if ((previousLevelCm < 50 && nextLevelCm >= 50) || (previousLevelCm >= 50 && nextLevelCm < 50)) {
+      setCrisisEventLog((previous) => [
+        ...previous,
+        {
+          minute: previous.length ? Math.max(...previous.map((entry) => entry.minute)) + 1 : 0,
+          at: Date.now(),
+          text: nextLevelCm >= 50
+            ? `Su seviyesi ${nextLevelCm} cm'ye ulaştı; 50 cm kaide eşiği aşıldı, dere trafoları uyarı/kritik banda alındı.`
+            : `Su seviyesi ${nextLevelCm} cm'ye düştü; kaide eşiği altında, vadi trafoları güvenli banda döndü.`,
+        },
+      ].slice(-5));
+    }
+  };
   const isolatedIds = new Set(
-    isolationActive ? criticalTransformers.map((tr) => tr.id) : []
+    isolationActive ? isolationTargets.map((tr) => tr.id) : []
   );
   const backupSource = isolationActive
     ? backupFeedSource(currentBasin, rainfallMm, selectedPhase)
     : null;
   const backupLines = isolationActive
-    ? criticalTransformers.map((transformer) => ({ transformer, source: backupSource }))
+    ? isolationTargets.map((transformer) => ({ transformer, source: backupSource }))
     : [];
 
   // --- Tahliye rotası & AI danışmanı (havzaya göre uyarlanır) ---
@@ -822,10 +1183,6 @@ export default function App() {
   const historicalMatches = rankHistoricalMatches(rainfallMm);
   const closestEvent = historicalMatches[0];
   // --- Havzaya özel direnç metrikleri (hepsi currentBasin'den türer) ---
-  // NOT: Bu liste statiktir (isCritical bayrağı). Yukarıdaki
-  // criticalTransformers ise yağış ve hidrolojik faza bağlı olarak değişir ve
-  // SCADA izolasyonunu sürer — ikisi karıştırılmamalı.
-  // Tanım sırası korunur (TR-xxx-01, -02, -03) ki liste okunabilir kalsın.
   const criticalUnits = (currentBasin.transformers || []).filter(
     (tr) => tr.isCritical
   );
@@ -849,7 +1206,9 @@ export default function App() {
 
   // Haritanın odağı ve çizilecek havzalar: kompozitte beşi birden.
   const mapFocus = isComposite
-    ? COMPOSITE_VIEW
+    ? focusedBasinKey
+      ? { center: BASINS[focusedBasinKey].center, zoom: BASINS[focusedBasinKey].zoom }
+      : COMPOSITE_VIEW
     : { center: currentBasin.center, zoom: currentBasin.zoom };
   const visibleBasins = isComposite ? Object.values(BASINS) : [currentBasin];
   const showAyazagaTerrain = isComposite || scenario.id === "ayazaga_2026";
@@ -928,280 +1287,113 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen w-screen bg-slate-950 text-slate-100 font-sans">
-      {/* Üst Bar / Header */}
-      <header className="h-16 bg-slate-900 border-b border-slate-800 px-6 flex items-center justify-between z-10">
-        <div className="flex items-center space-x-3">
-          <div className="w-3 h-3 rounded-full bg-cyan-400 animate-ping" />
-          <h1 className="text-xl font-bold tracking-tight text-cyan-400">
-            HydroTwin <span className="text-white font-light">AI</span>
-          </h1>
-          <span className="text-xs bg-cyan-950 text-cyan-300 border border-cyan-800 px-2 py-0.5 rounded">
-            Siemens Grid Resilience
-          </span>
-        </div>
-
-        {/* Havza Seçici & Aksiyon Butonu */}
-        <div className="flex items-center space-x-4">
-          {/* Tek entegre kontrol: vaka seçimi havzayı, haritayı, zaman
-              çizelgesini ve meteoroloji değerlerini birlikte sürer. */}
-          <label htmlFor="case-select" className="text-xs text-slate-400">
-            İncelenen Vaka / Havza Senaryosu:
-          </label>
-          <select
-            id="case-select"
-            value={selectedScenarioId}
-            onChange={(e) => selectScenario(e.target.value)}
-            className="bg-slate-800 border border-slate-700 text-sm rounded px-3 py-1.5 focus:outline-none focus:border-cyan-500 min-w-[380px]"
-          >
-            {SCENARIOS.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.icon} {item.label} ({item.peak_rainfall} mm)
-              </option>
-            ))}
-          </select>
-
-          {!isComposite && (
-            <button
-              onClick={triggerStormForecast}
-              className={`text-xs font-semibold px-4 py-2 rounded transition-all shadow-md flex items-center space-x-1.5 ${
-                isPeakActive
-                  ? "bg-red-600 hover:bg-red-700 text-white animate-pulse"
-                  : "bg-cyan-600 hover:bg-cyan-500 text-white"
-              }`}
-            >
-              <span>
-                {isPeakActive
-                  ? `🚨 Pik Gün Aktif (${scenario.peak_rainfall} mm/gün)`
-                  : `⚡ Pik Güne Atla (${scenario.peak_rainfall} mm/gün)`}
-              </span>
-            </button>
-          )}
-        </div>
-      </header>
-
-      {/* Aktif Senaryo Banner'ı */}
-      <div className="bg-red-950/70 border-b border-red-800 px-6 py-2 flex items-center justify-between">
-        <p className="text-xs font-semibold text-red-200">
-          {isComposite
-            ? `🚨 17 Yıllık Kompozit İstanbul Modeli (2009-2026) Aktif — Ortalama Pik: ${COMPOSITE.peak_rainfall} mm/gün`
-            : `${scenario.icon} ${scenario.label} Senaryosu Aktif (Pik: ${scenario.peak_rainfall} mm/gün)`}
-        </p>
-        <div className="flex items-center space-x-3 text-[11px] whitespace-nowrap">
-          <span className="text-red-300/80">
-            Havza:{" "}
-            <span className="font-semibold text-red-100">{currentBasin.valleyLabel}</span>
-          </span>
-
-          <span className="text-red-300/80">
-            Faz: <span className="font-semibold text-red-100">{PHASE_LABEL[selectedPhase]}</span>
-          </span>
-          <span
-            className={`px-2 py-0.5 rounded border ${
-              scenario.measured
-                ? "bg-emerald-950/60 border-emerald-700 text-emerald-300"
-                : "bg-amber-950/60 border-amber-700 text-amber-300"
-            }`}
-          >
-            {scenario.measured ? "NASA POWER ölçümü" : "Modellenmiş profil"}
-          </span>
-        </div>
-      </div>
+      <LiveWeatherAlert
+        selectedBasinKey={selectedBasinKey}
+        onSelectBasin={handleSelectWeatherBasin}
+        onTriggerFlood={handleLiveFloodTrigger}
+        isFloodActive={weatherFloodActive}
+        onWeatherUpdate={setLiveWeatherData}
+      />
 
       {/* Sekmeler */}
-      <nav className="bg-slate-900 border-b border-slate-800 px-6 flex items-end space-x-1">
-        {[
-          {
-            id: "scada",
-            label: isComposite
-              ? "🗺️ Potansiyel Risk Haritası"
-              : "⚡ Proaktif SCADA Manevra Alanı",
-          },
-          { id: "advisor", label: "🤖 AI Grid Copilot & İklim Uyum Danışmanı" },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            aria-current={activeTab === tab.id ? "page" : undefined}
-            className={`text-xs font-semibold px-4 py-2.5 rounded-t transition-all border-b-2 ${
-              activeTab === tab.id
-                ? "border-cyan-400 text-cyan-300 bg-slate-800/60"
-                : "border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/30"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
+      <nav className="bg-slate-900 border-b border-slate-800 px-6 flex items-center">
+        <div className="flex items-end space-x-1">
+          {[
+            {
+              id: "scada",
+              label: isComposite
+                ? "🗺️ Potansiyel Risk Haritası"
+                : "⚡ Proaktif SCADA Manevra Alanı",
+            },
+            { id: "advisor", label: "🤖 AI Grid Copilot & İklim Uyum Danışmanı" },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              aria-current={activeTab === tab.id ? "page" : undefined}
+              className={`text-xs font-semibold px-4 py-2.5 rounded-t transition-all border-b-2 ${
+                activeTab === tab.id
+                  ? "border-cyan-400 text-cyan-300 bg-slate-800/60"
+                  : "border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/30"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
       </nav>
 
       {/* Ana Çalışma Alanı (Harita + Kontrol Paneli) */}
       <div className="flex flex-1 overflow-hidden">
         {/* Sol Panel: İklim Adaptasyonu & Kayıp Önleme Metrikleri (COP standardı) */}
         {activeTab === "advisor" && (
-          <aside className="w-80 bg-slate-900 border-r border-slate-800 p-5 overflow-y-auto space-y-4">
-            <div>
-              <h2 className="text-base font-semibold text-slate-200">
-                Şebeke Direnci &amp; Altyapı Risk Analizi
-              </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                {isComposite
-                  ? `İstanbul geneli · ${TOTAL_CRITICAL_UNITS} vadi tabanı kritik ünitesi`
-                  : `${currentBasin.name} · ${riskCount} riskli ünite`}
-              </p>
-            </div>
-
-            {/* Metrikler aktif manevranın projeksiyonudur; izolasyon
-                başlatılmadıysa bu durum açıkça belirtilir. */}
-            {!isolationActive && (
-              <div className="bg-slate-800/50 border border-slate-700 rounded px-3 py-2">
-                <p className="text-[11px] text-slate-400 leading-relaxed">
-                  Aşağıdaki değerler proaktif izolasyon manevrası uygulandığında
-                  elde edilecek projeksiyondur. Manevra henüz başlatılmadı.
-                </p>
-              </div>
-            )}
-
-            {/* 🛡️ Şebeke Dayanıklılık İndeksi */}
-            <div className="bg-slate-800/60 border border-slate-700/80 rounded-lg p-3.5 space-y-2">
-              <div className="flex items-start justify-between">
-                <div className="text-[11px] text-slate-400 leading-tight pr-2">
-                  🛡️ {isComposite ? "Kümülatif Şebeke Direnci" : "Şebeke Dayanıklılık İndeksi"}
-                  <br />
-                  <span className="text-[10px] text-slate-500">(Resilience Score)</span>
-                </div>
-                <div className="text-2xl font-bold text-emerald-400 leading-none">
-                  %{resilienceScore}
-                </div>
-              </div>
-              <div className="h-1.5 bg-slate-700/70 rounded">
-                <div
-                  className="h-full rounded bg-emerald-500"
-                  style={{ width: `${resilienceScore}%` }}
-                />
-              </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                {isComposite
-                  ? "2009-2026 arası 6 büyük afet boyunca İstanbul genelinde proaktif korunan altyapı."
-                  : `${currentBasin.name} havzasında taşkın dalgasına karşı proaktif korunan altyapı.`}
-              </p>
-            </div>
-
-            {/* ⚡ Önlenen Ekipman Hasarı */}
-            <div className="bg-slate-800/60 border border-slate-700/80 rounded-lg p-3.5 space-y-1.5">
-              <div className="flex items-start justify-between">
-                <div className="text-[11px] text-slate-400 pr-2">
-                  ⚡ {isComposite ? "Kümülatif Önlenen Ekipman Riski" : "Önlenen Ekipman Hasarı"}
-                </div>
-                <div className="text-xl font-bold text-cyan-400 leading-none whitespace-nowrap">
-                  ~{preventedDamage}M $
-                </div>
-              </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                {isComposite
-                  ? `${COMPOSITE_METRICS.unitSummary} genelinde kümülatif onarım ve plansız kesinti riski.`
-                  : `${riskCount} ünitede (${criticalIds}) su altı kısa devre ve izolasyon yağı/SF6 sızıntı hasarı engellendi.`}
-              </p>
-            </div>
-
-            {/* 🚇 Kritik Yük Koruma Durumu */}
-            <div className="bg-emerald-950/30 border border-emerald-800/60 rounded-lg p-3.5 space-y-1.5">
-              <div className="text-[11px] font-semibold text-emerald-300">
-                🚇 {isComposite ? "Kritik Altyapı Koruma Durumu" : "Kritik Yük Koruma Durumu"}
-              </div>
-              <p className="text-[11px] text-slate-300 leading-relaxed">
-                {isComposite
-                  ? COMPOSITE_METRICS.criticalLoad
-                  : currentBasin.criticalLoadNote}
-              </p>
-              <p className="text-[10px] text-slate-500 border-t border-emerald-800/60 pt-1.5 leading-relaxed">
-                {isComposite
-                  ? `${visibleBasins.length} havzada yüksek kot ring beslemesi tanımlı`
-                  : `Yedek kaynak: ${backupTransformer.name} (${backupTransformer.elevation} m)`}
-              </p>
-            </div>
-
-            {/* 🏗️ Uzun Vadeli Altyapı Tavsiyesi */}
-            <div className="bg-slate-800/40 border border-slate-700/60 rounded-lg p-3.5 space-y-1.5">
-              <div className="text-[11px] font-semibold text-cyan-300">
-                {isComposite
-                  ? COMPOSITE_METRICS.recommendationTitle
-                  : "🏗️ Uzun Vadeli Altyapı Tavsiyesi"}
-              </div>
-              {isComposite ? (
-                <p className="text-[11px] text-slate-300 leading-relaxed">
-                  {COMPOSITE_METRICS.recommendation}
-                </p>
-              ) : (
-                <p className="text-[11px] text-slate-300 leading-relaxed">
-                  {/* Seçili havzanın gerçek riskli üniteleri adlandırılır. */}
-                  <span className="font-semibold text-white">{criticalIds}</span>{" "}
-                  üniteleri taşkın seviyesinden en az{" "}
-                  <span className="font-mono text-cyan-400">+1.8 m</span> çelik
-                  platform üzerine yükseltilmeli veya su geçirmez hücre
-                  modifikasyonu yapılmalıdır.
-                </p>
-              )}
-            </div>
-
-            {isComposite ? (
-              <div className="rounded-lg border border-orange-800/70 bg-orange-950/30 p-3.5 space-y-2">
-                <h3 className="text-xs font-semibold text-orange-300">
-                  🚛 Avrupa Yakası Kriz Lojistik Koridoru
-                </h3>
-                <p className="text-[11px] text-slate-300 leading-relaxed">
-                  17 yıllık afet frekansı, vadi tabanı otoyollarının (E-5 ve Basın Ekspres) ilk kilitlenen noktalar olduğunu doğrulamaktadır. Sahra mobil jeneratör intikalleri için Kuzey Çevre Yolu (E-80 / TEM) güvenli lojistik omurgası olarak tanımlanmıştır.
-                </p>
-              </div>
-            ) : (
-              <div className="bg-slate-800/40 border border-slate-700/60 rounded-lg p-3.5 space-y-2">
-                <h3 className="text-xs font-semibold text-cyan-300">
-                  🚧 Saha Ekibi Erişim Ekseni
-                </h3>
-                <p className="text-[11px] text-slate-400 leading-relaxed">
-                  {route.origin.label} ({route.origin.elevation} m) →{" "}
-                  {route.destination.label} ({route.destination.elevation} m)
-                </p>
-
-                <button
-                  onClick={calculateSafeRoute}
-                  className={`w-full text-xs font-semibold px-3 py-2 rounded transition-all ${
-                    routeReady
-                      ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                      : "bg-cyan-600 hover:bg-cyan-500 text-white"
-                  }`}
-                >
-                  {routeReady
-                    ? "✅ Yaklaşık Erişim Ekseni Haritada (Gizle)"
-                    : "🧭 Yaklaşık Erişim Ekseni Hesapla"}
-                </button>
-
-                {routeReady && (
-                  <div className="space-y-1.5">
-                    <div className="grid grid-cols-2 gap-2 text-center">
-                      <div className="bg-slate-900/70 rounded p-1.5">
-                        <div className="text-[10px] text-slate-500">Mesafe</div>
-                        <div className="text-xs font-bold text-slate-100 font-mono">
-                          {(routeState.distance / 1000).toFixed(2)} km
-                        </div>
-                      </div>
-                      <div className="bg-slate-900/70 rounded p-1.5">
-                        <div className="text-[10px] text-slate-500">Yürüyüş</div>
-                        <div className="text-xs font-bold text-slate-100 font-mono">
-                          {formatDuration(routeState.duration)}
-                        </div>
-                      </div>
-                    </div>
-                    <p className="text-[10px] text-slate-500 leading-relaxed">
-                      Kaynak: {routeState.source} · {routeState.positions.length} nokta
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-          </aside>
+          <ResilienceAnalysisPanel
+            isComposite={isComposite}
+            currentBasin={currentBasin}
+            TOTAL_CRITICAL_UNITS={TOTAL_CRITICAL_UNITS}
+            riskCount={riskCount}
+            isolationActive={isolationActive}
+            resilienceScore={resilienceScore}
+            preventedDamage={preventedDamage}
+            COMPOSITE_METRICS={COMPOSITE_METRICS}
+            visibleBasins={visibleBasins}
+            backupTransformer={backupTransformer}
+            criticalIds={criticalIds}
+            route={route}
+            calculateSafeRoute={calculateSafeRoute}
+            routeReady={routeReady}
+            routeState={routeState}
+            formatDuration={formatDuration}
+            weatherFloodActive={weatherFloodActive}
+          />
         )}
 
         {/* Harita */}
         <div className="flex-1 relative">
+          {/* 🚨 SADECE SCADA AFET EKRANINDA ÇIKAN ACİL DURUM EYLEM HUD'I */}
+          {activeTab === "scada" && weatherFloodActive && (
+            <aside aria-label="Acil Afet Uyarısı" className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] pointer-events-auto">
+              {!isolationActive ? (
+                <div className="flex items-center gap-3 bg-slate-950/95 border-2 border-rose-500 rounded-2xl px-4 py-2.5 shadow-[0_0_35px_rgba(244,63,94,0.55)] backdrop-blur-md animate-in fade-in zoom-in-95 duration-200">
+                  <div className="flex items-center gap-2">
+                    <span className="relative flex h-3.5 w-3.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-rose-500"></span>
+                    </span>
+                    <span className="text-rose-200 text-xs sm:text-sm font-black tracking-wide uppercase">
+                      🚨 ŞU AN RİSK ALTINDASINIZ!
+                    </span>
+                  </div>
+
+                  <div className="h-5 w-px bg-slate-700 hidden sm:block" />
+
+                  <button
+                    type="button"
+                    onClick={toggleIsolation}
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-400 via-amber-500 to-rose-600 hover:from-amber-300 hover:to-rose-500 text-slate-950 font-black text-xs sm:text-sm shadow-xl flex items-center gap-2 transition active:scale-95 animate-pulse cursor-pointer"
+                  >
+                    <Zap size={16} className="fill-current text-slate-950" />
+                    <span>⚡ HEMEN İZOLASYONU BAŞLAT</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 bg-slate-950/95 border-2 border-emerald-500 rounded-2xl px-4 py-2 shadow-[0_0_25px_rgba(16,185,129,0.35)] backdrop-blur-md animate-in fade-in duration-200">
+                  <div className="flex items-center gap-2 text-emerald-300 text-xs sm:text-sm font-bold">
+                    <ShieldCheck size={18} className="text-emerald-400" />
+                    <span>🛡️ Şebeke Başarıyla İzole Edildi (Güvende)</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={toggleIsolation}
+                    className="text-[11px] font-semibold text-slate-400 hover:text-slate-200 underline ml-1 transition cursor-pointer"
+                  >
+                    Geri Al
+                  </button>
+                </div>
+              )}
+            </aside>
+          )}
+
           <MapContainer
             center={currentBasin.center}
             zoom={currentBasin.zoom}
@@ -1214,21 +1406,13 @@ export default function App() {
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             />
 
-            {/* Su Baskını Poligonları (yağış 25 mm/gün üzerine çıktığında).
-                visibleBasins kompozitte 5 havzayı, tekil vakada yalnızca
-                seçili havzayı içerir. */}
-            {!isComposite && isFloodEvent &&
+            {/* Su Baskını Poligonları */}
+            {!isComposite && (isFloodEvent || waterLevelCm >= 10) &&
               visibleBasins.map((basin) => (
                 <Polygon
                   key={`flood-${basin.name}`}
                   positions={basin.floodPolygon}
-                  pathOptions={{
-                    color: "#0284c7",
-                    fillColor: "#0284c7",
-                    fillOpacity: 0.45,
-                    weight: 2,
-                    dashArray: "4",
-                  }}
+                  pathOptions={floodPolygonPathOptions(waterLevelCm)}
                 >
                   <Popup>
                     <div className="text-slate-900 text-xs leading-relaxed">
@@ -1287,15 +1471,16 @@ export default function App() {
                 </Polygon>
               ))}
 
-            {/* Yedek Enerji Hatları — yüksek kottan izole edilen yüklere */}
+            {/* Yedek Enerji Hatları */}
             {!isComposite && backupLines.map(({ transformer, source }) => (
                 <Polyline
                   key={`backup-${transformer.id}`}
                   positions={[source.pos, transformer.pos]}
                   pathOptions={{
-                    color: BACKUP_FEED_COLOR,
-                    dashArray: "8, 8",
-                    weight: 3,
+                    color: "#34d399",
+                    dashArray: "6, 8",
+                    weight: 4,
+                    className: "hydro-transfer-ring",
                   }}
                 >
                   <Popup>
@@ -1316,7 +1501,7 @@ export default function App() {
                 </Polyline>
             ))}
 
-            {/* Yerel tahliye ekseni — yaklaşık, sokak navigasyonu değildir. */}
+            {/* Yerel tahliye ekseni */}
             {!isComposite && routeReady && (
               <Polyline
                 positions={routeState.positions}
@@ -1343,18 +1528,24 @@ export default function App() {
               </Polyline>
             )}
 
-            {/* Trafolar — kompozitte beş havzanın tamamı */}
+            {/* Trafolar */}
             {!isComposite &&
               visibleBasins.flatMap((basin) => basin.transformers).map((tr) => {
-              const risk = calculateRisk(tr, rainfallMm, selectedPhase);
-              // İzolasyon yalnızca manevranın tetiklendiği havzada geçerlidir.
+              const risk = riskForTransformer(tr);
+              const recommendedBackup = backupFeedSource(currentBasin, rainfallMm, selectedPhase);
               const isolated = isolatedIds.has(tr.id);
+              const decisionThresholds = [
+                waterLevelCm >= 50 ? `su seviyesi ${waterLevelCm} cm (kaide eşiği 50 cm)` : null,
+                rainfallMm > 30 ? `günlük model yağışı ${rainfallMm.toFixed(1)} mm (eşik 30 mm/gün)` : null,
+              ].filter(Boolean);
+              const decisionRationale = isolated
+                ? "Trafo izole edildi; yük yedek hatta aktarıldı."
+                : risk.level === "CRITICAL"
+                  ? `${decisionThresholds.join(" ve ")} nedeniyle kritik; operatör onayıyla izolasyon önerilir.`
+                  : "Kritik eşik aşılmadı; uzaktan izleme sürdürülür.";
               const style = markerStyle(risk, isolated);
               return (
                 <CircleMarker
-                  // Leaflet setStyle className'i güncellemez; sınıf değişince
-                  // işaretçinin yeniden kurulması için anahtara durum eklenir,
-                  // yoksa izole edilen ünite nabız atmaya devam eder.
                   key={`${tr.id}-${risk.level}-${isolated ? "iso" : "live"}`}
                   center={tr.pos}
                   radius={style.radius}
@@ -1367,7 +1558,26 @@ export default function App() {
                       <p><b>Tip / Gerilim:</b> {tr.type}</p>
                       {tr.capacity && <p><b>Kapasite:</b> {tr.capacity}</p>}
                       <p><b>Rakım:</b> {tr.elevation} m (DEM)</p>
-                      {/* Dereye mesafe yalnızca etüdü yapılmış havzalarda var. */}
+                      <div className="mt-2 rounded border border-slate-300 bg-slate-100 p-2 text-[10px] text-slate-800">
+                        <p className="font-bold">Karar gerekçesi</p>
+                        <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                          <li>Topoğrafik kırılganlık: {tr.elevation} m rakım; dereye {tr.distToStream !== undefined ? `${tr.distToStream} m` : "mesafe verisi yok"}.</li>
+                          <li>Hidrolojik durum: su seviyesi {waterLevelCm} cm / kaide eşiği 50 cm; günlük model yağışı {rainfallMm.toFixed(1)} mm.</li>
+                          <li>İzolasyon kararı: {decisionRationale}</li>
+                          <li>Yedek kaynak: {recommendedBackup.name} ({recommendedBackup.elevation} m), {recommendedBackup.isTransformer ? "mevcut güvenli trafolar arasındaki en yüksek kotlu merkez olduğu için" : "bu havzada güvenli kotta trafo bulunmadığı için güvenli toplanma alanı yedek dayanağı seçildi."}</li>
+                        </ul>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        <span className="rounded bg-slate-200 px-1.5 py-1 text-[10px] font-semibold text-slate-800">
+                          BEDAŞ: {tr.bedasCode}
+                        </span>
+                        <span className="rounded bg-amber-100 px-1.5 py-1 text-[10px] font-semibold text-amber-900">
+                          Risk bedeli: ${(tr.riskCostUsd / 1000000).toFixed(1)}M
+                        </span>
+                        <span className="rounded bg-cyan-100 px-1.5 py-1 text-[10px] font-semibold text-cyan-900">
+                          {currentBasin.criticalPumps}
+                        </span>
+                      </div>
                       {tr.distToStream !== undefined && (
                         <p><b>Dereye Mesafe:</b> {tr.distToStream} m</p>
                       )}
@@ -1400,7 +1610,7 @@ export default function App() {
               );
             })}
 
-            {/* Güvenli Toplanma Noktaları — kompozitte beş havzanın tamamı */}
+            {/* Güvenli Toplanma Noktaları */}
             {!isComposite && visibleBasins.map((basin) => (
               <CircleMarker
                 key={`safe-${basin.name}`}
@@ -1480,535 +1690,167 @@ export default function App() {
           </div>
         </div>
 
-        {/* Sağ Panel: Karar Destek & SCADA Komuta */}
+        {/* Sağ Panel: Karar Destek & SCADA Komuta (Afet Anında) veya Canlı Hava Donut Paneli (Normal Modda) */}
         {activeTab === "scada" && (
-        <aside className="w-96 bg-slate-900 border-l border-slate-800 p-5 flex flex-col justify-between overflow-y-auto">
-          {isComposite ? (
-            <div className="space-y-4">
-              <div>
-                <h2 className="text-sm font-semibold text-slate-100">
-                  Gelecek Seller İçin Proaktif Şebeke Yönetim Reçetesi
-                </h2>
-                <p className="mt-1 text-[11px] text-slate-500">
-                  İTÜ-AKOM sentezi · 17 yıllık afet hafızası
-                </p>
-              </div>
-
-              <section className="rounded-md border border-red-900/70 bg-red-950/20 p-3.5 space-y-2">
-                <h3 className="text-xs font-semibold text-red-300">
-                  📍 Kentsel Risk Dağılımı (İTÜ-AKOM Sentezi)
-                </h3>
-                <p className="text-[11px] leading-relaxed text-slate-300">
-                  İstanbul&apos;un sadece %10&apos;u yüksek taşkın tehlikesindedir. Kırmızı ve turuncu alanlar yüksek geçirimsizlik (%85+ beton) nedeniyle risk taşırken, yeşil alanlar sırt kotlarında yer alan güvenli bölgelerdir.
-                </p>
-                <div className="grid grid-cols-3 gap-1.5 border-t border-red-900/50 pt-2 text-center">
-                  <div>
-                    <p className="text-sm font-semibold text-cyan-300">%91</p>
-                    <p className="text-[9px] leading-tight text-slate-500">Kümülatif risk indeksi</p>
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-orange-300">12</p>
-                    <p className="text-[9px] leading-tight text-slate-500">Vadi trafosu</p>
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-emerald-300">&lt;15 m</p>
-                    <p className="text-[9px] leading-tight text-slate-500">Kritik rakım eşiği</p>
-                  </div>
-                </div>
-              </section>
-
-              <section className="rounded-md border border-orange-900/70 bg-orange-950/20 p-3.5 space-y-2">
-                <h3 className="text-xs font-semibold text-orange-300">
-                  ⚡ Gelecek Seller İçin Proaktif Şebeke Senaryosu
-                </h3>
-                <p className="text-[11px] text-slate-300">Olası pik fırtına (80+ mm) gerçekleştiğinde:</p>
-                <ul className="list-disc space-y-1.5 pl-4 text-[11px] leading-relaxed text-slate-300">
-                  <li>Kırmızı/turuncu çanaklardaki kritik pompalar (metro, tahliye) yeşil güvenli sırtlardaki (İTÜ Maslak, Kuyumcukent, Başakşehir) indirici merkezlere ring beslemesiyle bağlanır.</li>
-                  <li>Taşkın anında su seviyesi yükselen vadi köşkleri kontrollü izole edilerek ark/infilak riski önlenir.</li>
-                </ul>
-              </section>
-
-              <section className="rounded-md border border-emerald-900/70 bg-emerald-950/20 p-3.5 space-y-2">
-                <h3 className="text-xs font-semibold text-emerald-300">
-                  🛠️ Yapısal Dayanıklılık Çözümleri
-                </h3>
-                <ul className="list-disc space-y-1.5 pl-4 text-[11px] leading-relaxed text-slate-300">
-                  <li>+2.0 m çelik platform yükseltmesi (vadi tabanı trafoları için)</li>
-                  <li>Su geçirmez GIS (Gaz İzoleli Şalt) dönüşümü</li>
-                  <li>Doğa Temelli Çözümler (NBS): Geçirimli zeminler ve yağmur hendekleri</li>
-                </ul>
-              </section>
-            </div>
-          ) : (
-          <>
-          <div className="space-y-5">
-            <div>
-              <h2 className="text-base font-semibold text-slate-200">
-                Proaktif Afet Karar Destek
-              </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                NASA POWER & Copernicus Topografik Modelleme
-              </p>
-            </div>
-
-            {/* 5 Günlük Hidrolojik Faz Çizelgesi */}
-            <div className="bg-slate-800/60 border border-slate-700/80 rounded-lg p-3.5 space-y-2.5">
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-400">Olay Zaman Çizelgesi</span>
-                <span className="text-slate-500 font-mono truncate pl-2">
-                  {scenario.label}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-5 gap-1.5">
-                {scenario.days.map((day) => {
-                  const active = day.phase === selectedPhase;
-                  const dayColor = rainBand(day.PRECTOTCORR).color;
-                  return (
-                    <button
-                      key={day.phase}
-                      onClick={() => selectPhase(day.phase)}
-                      aria-pressed={active}
-                      title={`${PHASE_LABEL[day.phase]} · ${day.date}`}
-                      className={`rounded px-1 py-1.5 text-center transition-all border ${
-                        active
-                          ? "bg-slate-700 border-cyan-500"
-                          : "bg-slate-900/60 border-slate-700 hover:border-slate-500"
-                      }`}
-                    >
-                      <div className="text-[10px] font-semibold text-slate-300 leading-tight">
-                        {PHASE_SHORT[day.phase]}
-                      </div>
-                      <div className="text-[9px] text-slate-500 font-mono leading-tight">
-                        {formatDay(day.date)}
-                      </div>
-                      <div
-                        className="text-[10px] font-mono font-bold mt-0.5"
-                        style={{ color: dayColor }}
-                      >
-                        {day.PRECTOTCORR.toFixed(1)}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Hidrolojik Zemin Uyarıları — faza özel */}
-            {selectedPhase === "antecedent" && (
-              <div className="bg-amber-950/40 border border-amber-700/70 rounded-lg p-3">
-                <p className="text-xs text-amber-200 leading-relaxed">
-                  ⚠️ <span className="font-semibold">Antecedent Saturation:</span> Zemin
-                  suya doyuyor, pik gün yağışı doğrudan yüzey akışına geçecek.
-                </p>
-              </div>
-            )}
-
-            {selectedPhase === "recession" && (
-              <div className="bg-amber-950/40 border border-amber-700/70 rounded-lg p-3">
-                <p className="text-xs text-amber-200 leading-relaxed">
-                  ⚠️ <span className="font-semibold">Trafo Hücrelerinde Nem:</span>{" "}
-                  Çekilme evresinde yalıtım kontrolü (meger testi) tamamlanmadan
-                  enerjiyi yeniden vermeyin.
-                </p>
-                <p className="text-[10px] text-amber-300/80 mt-1.5 leading-relaxed border-t border-amber-800/60 pt-1.5">
-                  Yağış düşse de su almış üniteler bu fazda yeşile dönmez.
-                </p>
-              </div>
-            )}
-
-            {/* Meteoroloji ve Yağış Kontrolü */}
-            <div className="bg-slate-800/60 border border-slate-700/80 rounded-lg p-3.5 space-y-3">
-              <div className="flex justify-between items-start text-xs">
-                <span className="text-slate-400 leading-tight">
-                  Günlük Yağış
-                  <br />
-                  <span className="text-[10px] text-slate-500">
-                    (mm/gün - NASA POWER Standardı)
-                  </span>
-                </span>
-                <span className="font-mono font-bold text-cyan-400 text-sm whitespace-nowrap">
-                  {rainfallMm.toFixed(2)} mm/gün
-                </span>
-              </div>
-
-              <input
-                type="range"
-                min="0"
-                max={SLIDER_MAX_MM}
-                step="0.1"
-                value={rainfallMm}
-                onChange={(e) => setManualRainfall(Number(e.target.value))}
-                className="w-full accent-cyan-400 cursor-pointer"
+          weatherFloodActive ? (
+            <aside className="w-80 lg:w-96 bg-slate-900 border-l border-slate-800 p-4 flex flex-col justify-between overflow-y-auto shrink-0">
+              <ScadaSimulationPanel
+                currentBasin={currentBasin}
+                scenario={scenario}
+                selectedPhase={selectedPhase}
+                selectPhase={selectPhase}
+                waterLevelCm={waterLevelCm}
+                handleWaterLevelChange={handleWaterLevelChange}
+                isolationActive={isolationActive}
+                isolationTargets={isolationTargets}
+                protectedAssetUsd={protectedAssetUsd}
+                toggleIsolation={toggleIsolation}
+                rainfallMm={rainfallMm}
+                setManualRainfall={setManualRainfall}
+                band={band}
+                humidity={humidity}
+                weatherFloodActive={weatherFloodActive}
+                SLIDER_MAX_MM={SLIDER_MAX_MM}
+                RAIN_MODERATE_MM={RAIN_MODERATE_MM}
+                RAIN_EXTREME_MM={RAIN_EXTREME_MM}
+                isManual={isManual}
+                showOpsLog={showOpsLog}
+                setShowOpsLog={setShowOpsLog}
+                crisisEventLog={crisisEventLog}
+                onOpenReport={() => {
+                  setReportGeneratedAt(new Date());
+                  setShowReportModal(true);
+                }}
+                onResetSimulation={() => handleLiveFloodTrigger(false, 0)}
+                PHASE_SHORT={PHASE_SHORT}
+                PHASE_LABEL={PHASE_LABEL}
+                formatDay={formatDay}
               />
-
-              <div className="flex justify-between items-center text-[10px] text-slate-500 font-mono -mt-1.5">
-                <span>0</span>
-                <span>{RAIN_MODERATE_MM} orta</span>
-                <span>{RAIN_EXTREME_MM} ekstrem</span>
-                <span>{SLIDER_MAX_MM}</span>
-              </div>
-
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold" style={{ color: band.color }}>
-                  {band.label}
-                </span>
-                {isManual ? (
-                  <button
-                    onClick={() => setManualRainfall(null)}
-                    className="text-[10px] text-cyan-400 hover:text-cyan-300 underline underline-offset-2"
-                  >
-                    NASA ölçümüne dön
-                  </button>
-                ) : (
-                  <span className="text-[10px] text-slate-500">NASA ölçümü</span>
-                )}
-              </div>
-
-              <div className="flex justify-between text-xs text-slate-400 pt-1 border-t border-slate-700/50">
-                <span>Havadaki Bağıl Nem (RH2M):</span>
-                <span className="font-mono text-slate-200 font-semibold">
-                  {humidity === null ? "—" : `%${humidity.toFixed(2)}`}
-                </span>
-              </div>
-            </div>
-
-            {/* Siemens SCADA Aksiyon Kartı */}
-            <div
-              className={`rounded-lg p-4 border transition-all ${
-                criticalTransformers.length === 0 || isolationActive
-                  ? "bg-emerald-950/30 border-emerald-800/60"
-                  : "bg-red-950/40 border-red-800/80"
-              }`}
-            >
-              <div className="flex items-center space-x-2">
-                <span className="text-lg">
-                  {criticalTransformers.length === 0 ? "✅" : isolationActive ? "🛡️" : "⚠️"}
-                </span>
-                <h3 className="text-sm font-semibold text-slate-100">
-                  {criticalTransformers.length === 0
-                    ? "Şebeke Güvenli Durumda"
-                    : isolationActive
-                      ? `${criticalTransformers.length} Trafo İzole Edildi — Manevra Tamamlandı`
-                      : `${criticalTransformers.length} Trafo İçin Acil Eylem Gerekli!`}
-                </h3>
-              </div>
-
-              {criticalTransformers.length > 0 ? (
-                <div className="mt-3 space-y-2 text-xs">
-                  <p className={isolationActive ? "text-emerald-300" : "text-red-300"}>
-                    {isolationActive
-                      ? "Aşağıdaki üniteler su yükselmeden önce enerjisiz bırakıldı; yükleri yedek hatta taşındı:"
-                      : "Önümüzdeki saatlerde vadi çanağındaki su seviyesi trafo tabanını aşabilir. Can güvenliği için şu adımları uygulayın:"}
-                  </p>
-                  <ul className="list-disc pl-4 space-y-1 text-slate-300">
-                    {criticalTransformers.map((tr) => (
-                      <li key={tr.id}>
-                        <span className="font-bold text-white">{tr.name}:</span>{" "}
-                        {isolationActive
-                          ? "Devre kesici açık — akım kesildi."
-                          : "Uzaktan devre kesici ile enerjiyi kesin (İzolasyon)."}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : (
-                <p className="text-xs text-slate-400 mt-2">
-                  Yağış miktarı kritik su baskını eşiğinin altında. Enerji iletimi
-                  kesintisiz sürdürülebilir.
-                </p>
-              )}
-            </div>
-
-            {/* Proaktif İzolasyon & Yük Aktarımı Tetikleyicisi */}
-            <button
-              onClick={toggleIsolation}
-              disabled={criticalTransformers.length === 0}
-              className={`w-full text-xs font-semibold px-4 py-3 rounded transition-all shadow-md text-left ${
-                criticalTransformers.length === 0
-                  ? "bg-slate-800/60 text-slate-500 border border-slate-700 cursor-not-allowed"
-                  : isolationActive
-                    ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                    : "bg-amber-500 hover:bg-amber-400 text-slate-950 animate-pulse"
-              }`}
-            >
-              {criticalTransformers.length === 0
-                ? "⚡ Siemens SCADA: İzolasyon gerektiren kritik ünite yok"
-                : isolationActive
-                  ? "↩️ Siemens SCADA: İzolasyonu Geri Al (Şebekeyi Normale Döndür)"
-                  : "⚡ Siemens SCADA: Proaktif İzolasyon & Yük Aktarımı Başlat"}
-            </button>
-
-            {/* Karar Destek Raporu — manevra sonrası başarı metrikleri */}
-            {isolationActive && (
-              <div className="bg-emerald-950/30 border border-emerald-800/60 rounded-lg p-4 space-y-3">
-                <h3 className="text-sm font-semibold text-emerald-300">
-                  Grid Resilience — Manevra Sonuç Raporu
-                </h3>
-
-                <div className="space-y-2.5 text-xs">
-                  <div className="flex space-x-2">
-                    <span>🛡️</span>
-                    <p className="text-slate-300">
-                      <span className="font-bold text-white">
-                        {criticalTransformers.length} Trafo Güvenle Devre Dışı:
-                      </span>{" "}
-                      Adım gerilimi ve elektrik çarpılma riski %0&apos;a indirildi.
-                    </p>
-                  </div>
-
-                  <div className="flex space-x-2">
-                    <span>⚡</span>
-                    <p className="text-slate-300">
-                      <span className="font-bold text-white">Kesintisiz Arz:</span>{" "}
-                      Kritik altyapı yükü{" "}
-                      <span className="text-emerald-400 font-medium">
-                        {backupSource.name}
-                      </span>{" "}
-                      ({backupSource.elevation} m) üzerinden yedek hatta aktarıldı.
-                    </p>
-                  </div>
-
-                  <div className="flex space-x-2">
-                    <span>💰</span>
-                    <p className="text-slate-300">
-                      <span className="font-bold text-white">Varlık Koruması:</span>{" "}
-                      {criticalTransformers.length} adet trafo ünitesinin su altında
-                      patlaması/kısa devresi önlendi.
-                    </p>
-                  </div>
-                </div>
-
-                {!backupSource.isTransformer && (
-                  <p className="text-[10px] text-amber-300/90 border-t border-emerald-800/60 pt-2 leading-relaxed">
-                    Not: Bu havzada güvenli kotta kalan trafo bulunmuyor. Yedek besleme
-                    dayanağı olarak yüksek kotlu toplanma alanı kullanıldı — saha
-                    uygulamasında buraya mobil jeneratör/ring besleme konumlandırılmalı.
-                  </p>
-                )}
-              </div>
-            )}
-
-            {/* Güvenli Tahliye ve Kaçış Yönlendirmesi */}
-            <div className="bg-slate-800/40 border border-slate-700/60 rounded-lg p-3.5 space-y-2">
-              <h4 className="text-xs font-semibold text-cyan-300 flex items-center space-x-1">
-                <span>🛡️</span>
-                <span>Saha Ekipleri & Vatandaş Yönlendirmesi</span>
-              </h4>
-              <p className="text-xs text-slate-300">
-                Dere yatağı ve alt geçit akslarından kaçının. Önerilen toplanma noktası:
-              </p>
-              <div className="bg-slate-900 p-2 rounded text-xs border border-slate-800 font-medium text-emerald-400">
-                📍 {currentBasin.safeZone.name} (Rakım: {currentBasin.safeZone.elevation} m)
-              </div>
-            </div>
-          </div>
-
-          {/* Alt Bilgi */}
-          <div className="pt-4 border-t border-slate-800 text-[11px] text-slate-500 text-center">
-            HydroTwin AI • Climathon 2026 İstanbul • Proaktif Afet Yönetimi
-          </div>
-          </>
-          )}
-        </aside>
+            </aside>
+          ) : (
+            <WeatherDonutPanel
+              selectedBasinKey={selectedBasinKey}
+              currentBasin={currentBasin}
+              weatherData={liveWeatherData}
+              onRefreshWeather={() => liveWeatherData.onRefresh?.()}
+              onTriggerFlood={handleLiveFloodTrigger}
+            />
+          )
         )}
 
-        {/* Sağ Panel: HydroTwin AI Danışmanı */}
+        {/* Sağ Panel: SurgeTwin AI Danışmanı (Her Zaman Aktif & Çalışır) */}
         {activeTab === "advisor" && (
-          <aside className="w-96 bg-slate-900 border-l border-slate-800 p-5 flex flex-col justify-between overflow-y-auto">
-            <div className="space-y-5">
-              <div>
-                <h2 className="text-base font-semibold text-slate-200">
-                  AI Grid Copilot
-                </h2>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  SCADA & mühendislik karar desteği · 17 yıllık taşkın bilgi bankası
-                  (2009-2026)
-                </p>
-              </div>
-
-              {/* Anlık yağış ↔ geçmiş olay kıyaslaması */}
-              <div className="bg-slate-800/60 border border-slate-700/80 rounded-lg p-3.5 space-y-3">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-slate-400">Anlık Yağış</span>
-                  <span className="font-mono font-bold text-cyan-400 text-sm">
-                    {rainfallMm.toFixed(2)} mm/gün
-                  </span>
-                </div>
-
-                <div className="bg-slate-900/70 border border-slate-700 rounded p-2.5">
-                  <p className="text-xs text-slate-300 leading-relaxed">
-                    Şu anki{" "}
-                    <span className="font-mono text-cyan-400">
-                      {rainfallMm.toFixed(2)} mm
-                    </span>{" "}
-                    değeri{" "}
-                    <span className="font-semibold text-white">
-                      {closestEvent.date.slice(0, 4)} {closestEvent.name}
-                    </span>{" "}
-                    olayıyla{" "}
-                    <span
-                      className="font-bold"
-                      style={{ color: rainBand(rainfallMm).color }}
-                    >
-                      %{closestEvent.match}
-                    </span>{" "}
-                    örtüşüyor.
-                  </p>
-                  <p className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
-                    {closestEvent.impact}
-                  </p>
-                </div>
-
-                {/* Tüm olaylar, örtüşmeye göre sıralı */}
-                <div className="space-y-1.5">
-                  {historicalMatches.map((event) => (
-                    <div key={event.date} className="text-[11px]">
-                      <div className="flex justify-between items-center">
-                        <span className="text-slate-300 truncate pr-2">
-                          <span className="font-mono text-slate-500">
-                            {event.date.slice(0, 4)}
-                          </span>{" "}
-                          {event.name}
-                        </span>
-                        <span className="font-mono text-slate-400 whitespace-nowrap">
-                          {event.rainfall} mm · %{event.match}
-                        </span>
-                      </div>
-                      <div className="h-1 bg-slate-700/70 rounded mt-1">
-                        <div
-                          className="h-full rounded bg-cyan-500"
-                          style={{ width: `${event.match}%` }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Kompozit modda serbest metinli danışman; tekil afetlerde
-                  mevcut hızlı soru butonları aynen korunur. */}
-              {isComposite ? (
-                <div className="space-y-2">
-                  <h3 className="text-xs font-semibold text-cyan-300">
-                    HydroTwin İklim Danışmanı
-                  </h3>
-
-                  <div
-                    ref={chatScrollRef}
-                    className="max-h-[380px] overflow-y-auto space-y-2 bg-slate-950/50 border border-slate-700/80 rounded-lg p-3"
-                  >
-                    {chatMessages.map((message, index) => (
-                      <div
-                        key={index}
-                        className={`flex ${
-                          message.role === "user" ? "justify-end" : "justify-start"
-                        }`}
-                      >
-                        <div
-                          // whitespace-pre-line: analitik yanıtlar çok satırlı,
-                          // \n karakterleri olmadan tek blok hâlinde akardı.
-                          className={`max-w-[85%] rounded-lg px-3 py-2 text-[11px] leading-relaxed whitespace-pre-line ${
-                            message.role === "user"
-                              ? "bg-blue-900 text-blue-50 rounded-br-sm"
-                              : "bg-emerald-950/60 border border-emerald-800/70 text-slate-200 rounded-bl-sm"
-                          }`}
-                        >
-                          {message.text}
-                        </div>
-                      </div>
-                    ))}
-                    {isBotTyping && (
-                      <div className="flex justify-start" aria-live="polite">
-                        <div className="max-w-[85%] rounded-lg rounded-bl-sm border border-emerald-800/70 bg-emerald-950/60 px-3 py-2 text-[11px] text-emerald-200">
-                          HydroTwin düşünüyor...
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Tıklanınca girdi alanını dolduran ipucu rozetleri */}
-                  <div className="flex flex-wrap gap-1.5">
-                    {CHAT_HINTS.map((hint) => (
-                      <button
-                        key={hint}
-                        type="button"
-                        onClick={() => setChatInput(hint)}
-                        className="text-[10px] px-2 py-1 rounded-full border border-slate-600 bg-slate-800/70 text-slate-300 hover:border-cyan-500 hover:text-cyan-300 transition-all"
-                      >
-                        {hint}
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* form onSubmit sayesinde Enter tuşu da gönderir */}
-                  <form onSubmit={sendChatMessage} className="flex gap-2">
-                    <input
-                      type="text"
-                      value={chatInput}
-                      disabled={isBotTyping}
-                      onChange={(e) => setChatInput(e.target.value)}
-                      placeholder="Avrupa Yakası gelecek şebeke riskleri hakkında bir soru sorun..."
-                      aria-label="HydroTwin İklim Danışmanı'na soru"
-                      className="flex-1 min-w-0 bg-slate-800 border border-slate-700 rounded px-2.5 py-2 text-[11px] text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-cyan-500"
-                    />
-                    <button
-                      type="submit"
-                      disabled={!chatInput.trim() || isBotTyping}
-                      className="text-[11px] font-semibold px-3 py-2 rounded bg-cyan-600 hover:bg-cyan-500 text-white disabled:bg-slate-700 disabled:text-slate-500 transition-all"
-                    >
-                      Gönder
-                    </button>
-                  </form>
-                </div>
-              ) : (
-              <div className="space-y-2">
-                <h3 className="text-xs font-semibold text-cyan-300">
-                  Hızlı Sorular
-                </h3>
-                {QUICK_QUESTIONS.map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() =>
-                      setActiveQuestionId((previous) =>
-                        previous === item.id ? null : item.id
-                      )
-                    }
-                    aria-pressed={activeQuestionId === item.id}
-                    className={`w-full text-left text-xs px-3 py-2.5 rounded border transition-all ${
-                      activeQuestionId === item.id
-                        ? "bg-cyan-950/60 border-cyan-700 text-cyan-200"
-                        : "bg-slate-800/50 border-slate-700 text-slate-300 hover:border-slate-500"
-                    }`}
-                  >
-                    {item.question}
-                  </button>
-                ))}
-
-                {activeQuestion && (
-                  <div className="bg-slate-800/70 border border-cyan-800/60 rounded-lg p-3.5 space-y-1.5">
-                    <div className="flex items-center space-x-1.5">
-                      <span>🤖</span>
-                      <span className="text-[11px] font-semibold text-cyan-300">
-                        HydroTwin AI yanıtı
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-200 leading-relaxed">
-                      {activeQuestion.answer}
-                    </p>
-                  </div>
-                )}
-              </div>
-              )}
-            </div>
-
-            {/* Alt Bilgi */}
-            <div className="pt-4 border-t border-slate-800 text-[11px] text-slate-500 text-center">
-              HydroTwin AI Karar Destek Çekirdeği • SCADA Kural Motoru Aktif
-            </div>
-          </aside>
+          <CopilotPanel
+            rainfallMm={rainfallMm}
+            rainBand={rainBand}
+            closestEvent={closestEvent}
+            historicalMatches={historicalMatches}
+            isComposite={isComposite}
+            chatScrollRef={chatScrollRef}
+            chatMessages={chatMessages}
+            isBotTyping={isBotTyping}
+            chatHints={CHAT_HINTS}
+            chatInput={chatInput}
+            setChatInput={setChatInput}
+            sendChatMessage={sendChatMessage}
+            weatherFloodActive={weatherFloodActive}
+            currentBasin={currentBasin}
+            isolationActive={isolationActive}
+            onToggleIsolation={toggleIsolation}
+          />
         )}
       </div>
+
+      {showReportModal && (
+        <div className="report-modal fixed inset-0 z-[1200] flex items-start justify-center overflow-y-auto bg-black/75 p-3 sm:p-6">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="official-report-title"
+            className="report-sheet my-auto w-full max-w-[210mm] bg-white p-6 text-slate-900 shadow-2xl sm:p-10"
+          >
+            <header className="border-b-2 border-slate-900 pb-5 text-center">
+              <p className="text-xs font-semibold uppercase">
+                SURGETWIN · AFAD &amp; EPDK METODOLOJİSİ
+              </p>
+              <h2 id="official-report-title" className="mt-3 text-xl font-bold">
+                AFAD &amp; EPDK Metodolojisine Dayalı Proaktif Karar Destek Simülasyon Raporu
+              </h2>
+              <p className="mt-1 text-sm">Senaryo çıktısı · Kurum onaylı resmî belge değildir</p>
+            </header>
+
+            <dl className="report-meta mt-5 grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
+              <div><dt className="inline font-semibold">Rapor No: </dt><dd className="inline">ST-AFAD-BEDAŞ-2026</dd></div>
+              <div><dt className="inline font-semibold">Tarih / Saat: </dt><dd className="inline">{reportGeneratedAt ? new Intl.DateTimeFormat("tr-TR", { dateStyle: "long", timeStyle: "short" }).format(reportGeneratedAt) : "—"}</dd></div>
+              <div><dt className="inline font-semibold">Seçili Havza: </dt><dd className="inline">{currentBasin.name}</dd></div>
+              <div><dt className="inline font-semibold">AFAD Risk Kuşağı: </dt><dd className="inline">{currentBasin.afadZone}</dd></div>
+              <div><dt className="inline font-semibold">Simüle edilen su seviyesi: </dt><dd className="inline">{waterLevelCm} cm</dd></div>
+              <div><dt className="inline font-semibold">Operasyon durumu: </dt><dd className="inline">{isolationActive ? "Kritik trafolar izole edildi; ring aktarımı aktif" : "İzleme / manevra beklemede"}</dd></div>
+            </dl>
+
+            <div className="mt-6">
+              <h3 className="text-sm font-bold">İzole Edilen Trafolar ve Korunan Varlıklar</h3>
+              <table className="mt-2 w-full border-collapse text-left text-xs">
+                <thead>
+                  <tr className="bg-slate-100">
+                    <th className="border border-slate-400 p-2">İzole Edilen Trafo</th>
+                    <th className="border border-slate-400 p-2">BEDAŞ Kodu</th>
+                    <th className="border border-slate-400 p-2">Kurtarılan Varlık Bedeli</th>
+                    <th className="border border-slate-400 p-2">Kesintisiz Çalışan Metro Pompaları</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(isolationActive ? isolationTargets : []).map((transformer) => (
+                    <tr key={transformer.id}>
+                      <td className="border border-slate-400 p-2">{transformer.name}</td>
+                      <td className="border border-slate-400 p-2">{transformer.bedasCode}</td>
+                      <td className="border border-slate-400 p-2">${(transformer.riskCostUsd / 1000000).toFixed(1)}M</td>
+                      <td className="border border-slate-400 p-2">{currentBasin.criticalPumps}</td>
+                    </tr>
+                  ))}
+                  {!isolationActive && (
+                    <tr>
+                      <td className="border border-slate-400 p-2 text-center" colSpan={4}>
+                        Henüz izole edilmiş trafo yok; rapor mevcut havza ve su seviyesi senaryosunu gösterir.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <section className="mt-6">
+              <h3 className="text-sm font-bold">Uzun Vadeli Mühendislik Reçetesi</h3>
+              <p className="mt-2 text-sm leading-relaxed">
+                {currentBasin.transformers.filter((transformer) => transformer.isCritical)[0]?.recommendation}
+              </p>
+              <p className="mt-2 text-xs leading-relaxed">
+                Günlük düzenleyici maliyet varsayımı: {currentBasin.transformers[0]?.epdkDailyPenalty}. Kritik yükler: {currentBasin.criticalPumps}.
+              </p>
+              <p className="mt-5 border-t border-slate-300 pt-3 text-[10px] text-slate-500">
+                Veri kaynakları: Open-Meteo saatlik canlı meteoroloji; İBB DEM eşik referansı ve OpenStreetMap altlık haritası; trafo konumları yerel BASINS senaryo verisi. Donanım bedeli ve günlük ceza sektör ortalamalarına dayalı parametrik varsayımlardır. Bu belge AFAD/EPDK kurum onayı taşımaz; saha ölçümü ve yetkili kurum talimatı yerine geçmez.
+              </p>
+            </section>
+
+            <footer className="report-actions mt-7 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="rounded bg-cyan-800 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-700"
+              >
+                Yazdır / PDF Olarak Kaydet
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowReportModal(false)}
+                className="rounded border border-slate-400 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+              >
+                Kapat
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

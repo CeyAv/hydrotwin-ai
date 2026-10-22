@@ -1,7 +1,7 @@
-# 🌊 HydroTwin AI — Şebeke Direnci & Taşkın Dijital İkizi
+# 🌊 SurgeTwin AI — Şebeke Direnci & Taşkın Dijital İkizi
 > **İklim Adaptasyonu ve Kentsel Elektrik Dağıtım Şebekesi Direnç Platformu**
 
-HydroTwin AI; aşırı yağış ve kentsel sel olaylarında elektrik dağıtım altyapısının (trafo merkezleri, şalt sahaları ve kritik pompalar) operasyonel sürekliliğini sağlamak amacıyla geliştirilmiş mekânsal bir karar destek simülatörüdür. 
+SurgeTwin AI; aşırı yağış ve kentsel sel olaylarında elektrik dağıtım altyapısının (trafo merkezleri, şalt sahaları ve kritik pompalar) operasyonel sürekliliğini sağlamak amacıyla geliştirilmiş mekânsal bir karar destek simülatörüdür. 
 
 Platform, 17 yıllık afet hafızasını (2009–2026), topografik çanak analizlerini ve çok kriterli karar modellerini bir araya getirerek şebeke operatörlerine proaktif manevra kabiliyeti kazandırır.
 

@@ -44,6 +44,41 @@
   filter: drop-shadow(0 0 6px rgb(34 197 94 / 0.9));
 }
 
+@keyframes hydro-transfer-pulse {
+  0%,
+  100% {
+    stroke: #34d399;
+    stroke-opacity: 1;
+    stroke-dashoffset: 0;
+  }
+  50% {
+    stroke: #22d3ee;
+    stroke-opacity: 0.55;
+    stroke-dashoffset: 18;
+  }
+}
+
+.hydro-transfer-ring {
+  animation: hydro-transfer-pulse 1.6s linear infinite;
+  filter: drop-shadow(0 0 5px rgb(34 211 238 / 0.85));
+}
+
+@keyframes hydro-flood-pulse {
+  0%,
+  100% {
+    fill-opacity: 0.75;
+    stroke-opacity: 1;
+  }
+  50% {
+    fill-opacity: 0.45;
+    stroke-opacity: 0.55;
+  }
+}
+
+.hydro-flood-pulse {
+  animation: hydro-flood-pulse 1.4s ease-in-out infinite;
+}
+
 /* Yanıp sönen kırmızı uyarı, hareket hassasiyeti olan kullanıcılar için kapatılır;
    kalın çerçeve sabit kalarak kritik durum yine de ayırt edilebilir olur. */
 @media (prefers-reduced-motion: reduce) {
@@ -55,5 +90,88 @@
   .hydro-route {
     animation: none;
     stroke-width: 6;
+  }
+
+  .hydro-transfer-ring {
+    animation: none;
+    stroke: #34d399;
+    stroke-opacity: 1;
+  }
+
+  .hydro-flood-pulse {
+    animation: none;
+    fill-opacity: 0.75;
+    stroke-opacity: 1;
+  }
+}
+
+@page {
+  size: A4 portrait;
+  margin: 14mm;
+}
+
+@media print {
+  :root {
+    color-scheme: light;
+  }
+
+  html,
+  body,
+  #root {
+    width: 100% !important;
+    min-width: 0 !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    color: #111827 !important;
+    font-family: Arial, Helvetica, sans-serif !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  .report-modal,
+  .report-modal * {
+    visibility: visible !important;
+  }
+
+  .report-modal {
+    position: static !important;
+    display: block !important;
+    width: 100% !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+
+  .report-sheet {
+    width: 100% !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    color: #111827 !important;
+    background: #ffffff !important;
+    font-family: Arial, Helvetica, sans-serif !important;
+    break-inside: avoid;
+  }
+
+  .report-actions {
+    display: none !important;
+  }
+
+  .report-sheet table,
+  .report-sheet tr,
+  .report-sheet th,
+  .report-sheet td,
+  .report-sheet section,
+  .report-sheet header {
+    break-inside: avoid;
   }
 }
