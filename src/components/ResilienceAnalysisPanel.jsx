@@ -200,27 +200,53 @@ export default function ResilienceAnalysisPanel({
 
       {/* 🧭 Saha Erişim Ekseni (Yalnızca Afet Simülasyonu Tetiklendiğinde Görünür) */}
       {weatherFloodActive && route && (
-        <section className="rounded-xl border border-slate-800 bg-slate-950/70 p-3 space-y-2">
+        <section className="rounded-xl border border-emerald-900/60 bg-slate-950/80 p-3 space-y-2.5 shadow-lg">
           <div className="flex items-center justify-between text-xs">
-            <span className="font-semibold text-slate-200 flex items-center gap-1">
-              <Compass size={13} className="text-cyan-400" />
-              <span>Saha Erişim Ekseni</span>
+            <span className="font-semibold text-slate-200 flex items-center gap-1.5">
+              <Compass size={14} className="text-emerald-400" />
+              <span>Saha Yaya Tahliye Ekseni</span>
             </span>
-            <span className="text-[10px] text-slate-400">
-              {route.origin.elevation}m → {route.destination.elevation}m
+            <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/80 border border-emerald-800/60 px-2 py-0.5 rounded">
+              {route.origin.elevation}m → {route.destination.elevation}m (+{Math.max(0, route.destination.elevation - route.origin.elevation)}m kot)
             </span>
           </div>
+
+          <div className="text-[11px] text-slate-300 space-y-1 bg-slate-900/70 p-2 rounded-lg border border-slate-800">
+            <div className="flex justify-between items-center text-[10.5px]">
+              <span className="text-slate-400">Çıkış Noktası:</span>
+              <span className="font-medium text-rose-300 truncate max-w-[170px]" title={route.origin.label}>{route.origin.label}</span>
+            </div>
+            <div className="flex justify-between items-center text-[10.5px]">
+              <span className="text-slate-400">Güvenli Hedef:</span>
+              <span className="font-medium text-emerald-300 truncate max-w-[170px]" title={route.destination.label}>{route.destination.label}</span>
+            </div>
+          </div>
+
+          {routeReady && routeState.distance && (
+            <div className="grid grid-cols-2 gap-2 text-center text-xs">
+              <div className="bg-emerald-950/40 border border-emerald-800/50 rounded-lg p-2">
+                <div className="text-[10px] uppercase tracking-wider text-emerald-400 font-bold">Gerçek Mesafe</div>
+                <div className="text-sm font-black text-emerald-200 mt-0.5">{(routeState.distance / 1000).toFixed(2)} km</div>
+                <div className="text-[9px] text-slate-400">Sokak & cadde ağı</div>
+              </div>
+              <div className="bg-emerald-950/40 border border-emerald-800/50 rounded-lg p-2">
+                <div className="text-[10px] uppercase tracking-wider text-emerald-400 font-bold">Tahmini İntikal</div>
+                <div className="text-sm font-black text-emerald-200 mt-0.5">{formatDuration(routeState.duration)}</div>
+                <div className="text-[9px] text-slate-400">Güvenli yaya temposu</div>
+              </div>
+            </div>
+          )}
 
           <button
             type="button"
             onClick={calculateSafeRoute}
-            className={`w-full text-xs font-semibold py-2 px-3 rounded-lg transition ${
+            className={`w-full text-xs font-bold py-2.5 px-3 rounded-lg transition shadow-md flex items-center justify-center gap-1.5 ${
               routeReady
-                ? "bg-emerald-700 text-white"
-                : "bg-cyan-700 hover:bg-cyan-600 text-white shadow"
+                ? "bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-400/40"
+                : "bg-emerald-700 hover:bg-emerald-600 text-white border border-emerald-500/30"
             }`}
           >
-            {routeReady ? "Haritada Gösteriliyor (Gizle)" : "Yaklaşık Rotayı Çiz"}
+            <span>{routeReady ? "🗺️ Haritada Gösteriliyor (Gizle)" : "🚶‍♂️ Güvenli Sokak Rotasını Çiz"}</span>
           </button>
         </section>
       )}

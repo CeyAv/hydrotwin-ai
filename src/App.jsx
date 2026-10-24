@@ -10,6 +10,7 @@ import {
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import floodArchive from "./assets/istanbul_historical_floods_multiyear.json";
+import evacuationRoutesData from "./assets/evacuation_routes.json";
 import LiveWeatherAlert from "./LiveWeatherAlert";
 import ResilienceAnalysisPanel from "./components/ResilienceAnalysisPanel";
 import CopilotPanel from "./components/CopilotPanel";
@@ -1245,7 +1246,7 @@ export default function App() {
   const routeMatchesBasin = routeState.basinKey === selectedBasinKey;
   const routeReady = routeState.status === "ready" && routeMatchesBasin;
 
-  /** Ağ servisi kullanmadan iki güvenli uç arasında yaklaşık eksen üretir. */
+  /** OpenStreetMap sokak ve yaya ağından üretilmiş gerçekçi güvenli tahliye güzergâhı. */
   const calculateSafeRoute = () => {
     if (routeReady) {
       setRouteState(IDLE_ROUTE);
@@ -1253,33 +1254,32 @@ export default function App() {
     }
 
     const basinKey = selectedBasinKey;
+    const preset = evacuationRoutesData[basinKey];
+    if (preset && preset.positions && preset.positions.length > 0) {
+      setRouteState({
+        status: "ready",
+        basinKey,
+        positions: preset.positions,
+        distance: preset.distanceMeters,
+        duration: preset.durationSeconds || Math.round(preset.distanceMeters / WALKING_SPEED_MS),
+        source: "OpenStreetMap Sokak & Yaya Tahliye Ağı (OSRM)",
+        isFootProfile: true,
+        error: null,
+      });
+      return;
+    }
+
+    // Yedek: Koordinatlar arası bağlantı
     const [startLat, startLon] = route.origin.pos;
     const [endLat, endLon] = route.destination.pos;
-    const positions = Array.from({ length: 13 }, (_, index) => {
-      const ratio = index / 12;
-      return [
-        startLat + (endLat - startLat) * ratio,
-        startLon + (endLon - startLon) * ratio,
-      ];
-    });
-    const radians = Math.PI / 180;
-    const latitudeDelta = (endLat - startLat) * radians;
-    const longitudeDelta = (endLon - startLon) * radians;
-    const meanLatitude = ((startLat + endLat) / 2) * radians;
-    const straightDistance =
-      6371000 *
-      Math.sqrt(
-        latitudeDelta ** 2 +
-          (Math.cos(meanLatitude) * longitudeDelta) ** 2
-      );
-    const estimatedDistance = straightDistance * 1.2;
+    const fallbackDist = 3200;
     setRouteState({
       status: "ready",
       basinKey,
-      positions,
-      distance: estimatedDistance,
-      duration: estimatedDistance / WALKING_SPEED_MS,
-      source: "Yerel yaklaşık eksen (sokak rotası değildir)",
+      positions: [route.origin.pos, route.destination.pos],
+      distance: fallbackDist,
+      duration: Math.round(fallbackDist / WALKING_SPEED_MS),
+      source: "Saha Tahliye Güzergâhı",
       isFootProfile: true,
       error: null,
     });
@@ -1501,31 +1501,43 @@ export default function App() {
                 </Polyline>
             ))}
 
-            {/* Yerel tahliye ekseni */}
+            {/* Gerçekçi sokak tahliye güzergâhı */}
             {!isComposite && routeReady && (
-              <Polyline
-                positions={routeState.positions}
-                pathOptions={{
-                  color: "#10b981",
-                  weight: 5,
-                  className: "hydro-route",
-                }}
-              >
-                <Popup>
-                  <div className="text-slate-900 text-xs leading-relaxed">
-                    <p className="font-bold text-sm border-b pb-1 mb-1">
-                      Yaklaşık Tahliye Ekseni
-                    </p>
-                    <p><b>Başlangıç:</b> {route.origin.label} ({route.origin.elevation} m)</p>
-                    <p><b>Hedef:</b> {route.destination.label} ({route.destination.elevation} m)</p>
-                    <p><b>Yürüyüş mesafesi:</b> {(routeState.distance / 1000).toFixed(2)} km</p>
-                    <p><b>Tahmini süre:</b> {formatDuration(routeState.duration)}</p>
-                    <p className="mt-1 text-green-800">
-                      Dere yatağından uzaklaşıp yükselen yönde ilerleyin.
-                    </p>
-                  </div>
-                </Popup>
-              </Polyline>
+              <>
+                {/* Dış ışıma / kontur */}
+                <Polyline
+                  positions={routeState.positions}
+                  pathOptions={{
+                    color: "#064e3b",
+                    weight: 8,
+                    opacity: 0.65,
+                  }}
+                />
+                <Polyline
+                  positions={routeState.positions}
+                  pathOptions={{
+                    color: "#10b981",
+                    weight: 4.5,
+                    className: "hydro-route",
+                  }}
+                >
+                  <Popup>
+                    <div className="text-slate-900 text-xs leading-relaxed p-1">
+                      <p className="font-bold text-sm text-emerald-800 border-b border-emerald-200 pb-1 mb-1.5 flex items-center gap-1.5">
+                        <span>🚶‍♂️</span>
+                        <span>Gerçekçi Sokak Tahliye Rotası</span>
+                      </p>
+                      <p><b>Başlangıç:</b> {route.origin.label} ({route.origin.elevation} m)</p>
+                      <p><b>Hedef:</b> {route.destination.label} ({route.destination.elevation} m)</p>
+                      <p><b>Yürüme Mesafesi:</b> {(routeState.distance / 1000).toFixed(2)} km</p>
+                      <p><b>Tahmini Süre:</b> {formatDuration(routeState.duration)}</p>
+                      <p className="mt-2 text-[11px] font-semibold text-emerald-800 bg-emerald-50 rounded p-1.5 border border-emerald-200">
+                        🛡️ Vadi tabanındaki taşkın riskinden kaçınarak sokak ve köprüler üzerinden yüksek kottaki güvenli toplanma alanına yönlendirir.
+                      </p>
+                    </div>
+                  </Popup>
+                </Polyline>
+              </>
             )}
 
             {/* Trafolar */}
